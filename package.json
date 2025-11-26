@@ -1,5 +1,5 @@
 {
-  "name": "my-pos",
+  "name": "tiendita-cps",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -9,9 +9,16 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.45.2",
+    "@supabase/ssr": "^0.4.0",
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.416.0",
     "next": "16.0.4",
     "react": "19.2.0",
-    "react-dom": "19.2.0"
+    "react-dom": "19.2.0",
+    "react-hot-toast": "^2.4.1"
+    ,
+    "jspdf": "^2.5.1"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

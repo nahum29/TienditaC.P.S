@@ -1,36 +1,76 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 🛒 Tiendita C.P.S
 
-## Getting Started
+Sistema de Punto de Venta para pequeñas tiendas.
 
-First, run the development server:
+**Interfaz en Español** | **Supabase** | **Next.js 16**
+
+## 🚀 Inicio Rápido
 
 ```bash
+# Variables de entorno
+# Configura NEXT_PUBLIC_SUPABASE_URL y NEXT_PUBLIC_SUPABASE_ANON_KEY en .env.local
+
+# Inicia la app
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+
+# Build para producción
+npm run build
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Abre: http://localhost:3000
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## ✨ Módulos
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- 📊 **Dashboard** - Estadísticas en tiempo real
+- 💳 **POS** - Punto de venta con carrito
+- 📦 **Inventario** - Gestión de productos
+- 👥 **Clientes** - Registro y crédito
+- 💰 **Créditos** - Seguimiento de deudas
+- 📋 **Ventas** - Historial de transacciones
 
-## Learn More
+## 🛠️ Stack
 
-To learn more about Next.js, take a look at the following resources:
+- Next.js 16 + React 19 + TypeScript
+- Tailwind CSS + Lucide Icons
+- Supabase PostgreSQL
+- React Hot Toast
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## 📝 Estructura
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```
+src/
+├── app/
+│   ├── dashboard/
+│   ├── inventory/
+│   ├── pos/
+│   ├── customers/
+│   ├── credits/
+│   └── sales/
+├── components/  (navbar, sidebar, modal, button, table)
+└── lib/supabase/ (configuración)
+```
 
-## Deploy on Vercel
+## ⚙️ Configuración
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+1. Configura `.env.local`:
+```env
+NEXT_PUBLIC_SUPABASE_URL=tu_url
+NEXT_PUBLIC_SUPABASE_ANON_KEY=tu_key
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+2. Crea las tablas en Supabase (SQL schema)
+
+3. Inicia: `npm run dev`
+
+## 🎯 Características
+
+✅ Múltiples métodos de pago (efectivo, tarjeta, crédito)
+✅ Gestión de inventario
+✅ Seguimiento de créditos de clientes
+✅ Historial de ventas
+✅ Interfaz responsiva
+✅ Sin autenticación requerida
+
+---
+
+Listo para producción. Despliega en Netlify. 🚀

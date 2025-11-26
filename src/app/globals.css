@@ -24,3 +24,90 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* Mejora la visibilidad de los placeholders en inputs, textarea y selects */
+input::placeholder,
+textarea::placeholder,
+select::placeholder {
+  color: rgba(41, 45, 53, 0.75); /* gray-500, 75% opacity */
+}
+input::-webkit-input-placeholder,
+textarea::-webkit-input-placeholder,
+select::-webkit-input-placeholder {
+  color: rgba(45, 49, 57, 0.75);
+}
+
+@media (prefers-color-scheme: dark) {
+  input::placeholder,
+  textarea::placeholder,
+  select::placeholder {
+    color: rgba(46, 55, 65, 0.6); /* lighter placeholder for dark mode */
+  }
+  input::-webkit-input-placeholder,
+  textarea::-webkit-input-placeholder,
+  select::-webkit-input-placeholder {
+    color: rgba(47, 60, 76, 0.6);
+  }
+}
+
+/* Mejor contraste para elementos de formulario y botones deshabilitados */
+select {
+  color: #0f172a; /* text-gray-900 */
+}
+
+/* Cuando no hay valor seleccionado, algunas UAs muestran la opción en gris claro; forzamos mayor contraste */
+select:invalid {
+  color: rgba(15,23,42,0.65);
+}
+
+/* Botones deshabilitados: mantener el texto/iconos legibles aunque el fondo sea pálido */
+button:disabled,
+button[disabled] {
+  color: #374151; /* text-gray-700 */
+  opacity: 1; /* no reducir opacidad del contenido */
+}
+
+/* Iconos SVG que usan currentColor heredan color correcto incluso cuando el botón está deshabilitado */
+button:disabled svg,
+button[disabled] svg {
+  color: inherit;
+}
+
+/* Inputs y selects: asegurar que el texto ingresado sea legible */
+input, textarea, select {
+  color: #0f172a; /* text-gray-900 */
+}
+
+/* Labels: asegurar que sea legible */
+label {
+  color: #1f2937; /* text-gray-800 */
+}
+
+/* Párrafos pequeños en modales y secciones: mejorar contraste */
+p {
+  color: #374151; /* text-gray-700 por defecto, un poco más oscuro que gray-600 */
+}
+
+/* Texto dentro de divs de descripción: mayor contraste */
+.text-gray-600 {
+  color: #374151; /* mejorado de gray-600 a gray-700 */
+}
+
+/* Buttons con background claro (gray-200, etc.): mejorar color del icono/texto */
+button.bg-gray-200 {
+  color: #0f172a; /* text-gray-900 */
+}
+
+button.bg-gray-200:hover {
+  background-color: #d1d5db; /* gray-300, pero mantener texto oscuro */
+}
+
+/* Spans de cantidad en carrito */
+span.text-center.font-medium {
+  color: #0f172a; /* text-gray-900 */
+}
+
+/* Spans semibold (como "Total:") */
+span.font-semibold {
+  color: #1f2937; /* text-gray-800 */
+}
