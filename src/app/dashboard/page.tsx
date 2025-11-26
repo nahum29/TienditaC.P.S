@@ -7,7 +7,7 @@ import { Sidebar } from '@/components/sidebar';
 import { Navbar } from '@/components/navbar';
 import { Modal } from '@/components/modal';
 import { TrendingUp, AlertTriangle, Users, ShoppingCart } from 'lucide-react';
-import { jsPDF } from 'jspdf';
+import * as XLSX from 'xlsx';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
 
@@ -88,91 +88,145 @@ export default function DashboardPage() {
 
       toast.loading('Generando informe...');
 
-      const doc = new jsPDF();
-      let y = 20;
-      doc.setFontSize(16);
-      doc.text('Informe Administrativo - Tiendita C.P.S', 14, y);
-      y += 8;
-      doc.setFontSize(10);
-      doc.text(`Rango: ${reportStart} — ${reportEnd}`, 14, y);
-      y += 10;
+      // Crear un nuevo libro de trabajo (workbook)
+      const wb = XLSX.utils.book_new();
 
+      // Sección de Ventas
       if (reportSections.sales) {
         const salesRes = await supabase.from('sales').select('*').gte('created_at', start).lte('created_at', end).order('created_at', { ascending: true });
         if (salesRes.error) throw salesRes.error;
         const sales = salesRes.data || [];
-        doc.setFontSize(12);
-        doc.text('Ventas', 14, y);
-        y += 6;
-        doc.setFontSize(9);
-        sales.slice(0, 50).forEach((s: any) => {
-          const line = `${new Date(s.created_at).toLocaleString('es-MX')} - $${s.total_amount.toFixed(2)} - ${s.status}`;
-          if (y > 280) { doc.addPage(); y = 20; }
-          doc.text(line, 14, y);
-          y += 5;
-        });
-        y += 6;
+        
+        const salesData = sales.map((s: any) => ({
+          'Fecha': new Date(s.created_at).toLocaleString('es-MX'),
+          'ID Venta': s.id,
+          'Total': s.total_amount,
+          'Costo': s.total_cost || 0,
+          'Ganancia': s.total_amount - (s.total_cost || 0),
+          'Estado': s.status === 'paid' ? 'Pagado' : 'Crédito',
+          'Cliente ID': s.customer_id || '-',
+        }));
+        
+        const ws = XLSX.utils.json_to_sheet(salesData);
+        
+        // Configurar anchos de columna
+        ws['!cols'] = [
+          { wch: 20 }, // Fecha
+          { wch: 12 }, // ID
+          { wch: 12 }, // Total
+          { wch: 12 }, // Costo
+          { wch: 12 }, // Ganancia
+          { wch: 12 }, // Estado
+          { wch: 15 }, // Cliente ID
+        ];
+        
+        // Agregar autofiltro
+        ws['!autofilter'] = { ref: `A1:G${salesData.length + 1}` };
+        
+        XLSX.utils.book_append_sheet(wb, ws, 'Ventas');
       }
 
+      // Sección de Inventario
       if (reportSections.products) {
         const prodRes = await supabase.from('products').select('*').order('name');
         if (prodRes.error) throw prodRes.error;
         const products = prodRes.data || [];
-        doc.setFontSize(12);
-        if (y > 270) { doc.addPage(); y = 20; }
-        doc.text('Inventario', 14, y);
-        y += 6;
-        doc.setFontSize(9);
-        products.slice(0, 200).forEach((p: any) => {
-          const stockDisplay = p.is_bulk ? `${(p.stock/1000).toFixed(2)} kg` : `${p.stock}`;
-          const line = `${p.name} (SKU: ${p.sku || '-'}) - ${stockDisplay} - $${(p.price||0).toFixed(2)}`;
-          if (y > 280) { doc.addPage(); y = 20; }
-          doc.text(line, 14, y);
-          y += 5;
-        });
-        y += 6;
+        
+        const productsData = products.map((p: any) => ({
+          'Nombre': p.name,
+          'SKU': p.sku || '-',
+          'Stock': p.is_bulk ? `${(p.stock/1000).toFixed(2)} kg` : p.stock,
+          'Stock Numérico': p.is_bulk ? (p.stock/1000) : p.stock,
+          'Precio': p.price || 0,
+          'Costo': p.cost || 0,
+          'A Granel': p.is_bulk ? 'Sí' : 'No',
+          'Umbral Bajo Stock': p.low_stock_threshold || 5,
+          'Estado': p.stock <= (p.low_stock_threshold || 5) ? '⚠️ Bajo' : '✓ Normal',
+        }));
+        
+        const ws = XLSX.utils.json_to_sheet(productsData);
+        
+        ws['!cols'] = [
+          { wch: 30 }, // Nombre
+          { wch: 15 }, // SKU
+          { wch: 15 }, // Stock
+          { wch: 15 }, // Stock Numérico
+          { wch: 12 }, // Precio
+          { wch: 12 }, // Costo
+          { wch: 12 }, // A Granel
+          { wch: 18 }, // Umbral
+          { wch: 12 }, // Estado
+        ];
+        
+        ws['!autofilter'] = { ref: `A1:I${productsData.length + 1}` };
+        
+        XLSX.utils.book_append_sheet(wb, ws, 'Inventario');
       }
 
+      // Sección de Clientes
       if (reportSections.customers) {
         const custRes = await supabase.from('customers').select('*').order('name');
         if (custRes.error) throw custRes.error;
         const customers = custRes.data || [];
-        doc.setFontSize(12);
-        if (y > 270) { doc.addPage(); y = 20; }
-        doc.text('Clientes', 14, y);
-        y += 6;
-        doc.setFontSize(9);
-        customers.slice(0, 200).forEach((c: any) => {
-          const line = `${c.name} - Balance: $${(c.balance||0).toFixed(2)}`;
-          if (y > 280) { doc.addPage(); y = 20; }
-          doc.text(line, 14, y);
-          y += 5;
-        });
-        y += 6;
+        
+        const customersData = customers.map((c: any) => ({
+          'Nombre': c.name,
+          'Email': c.email || '-',
+          'Teléfono': c.phone || '-',
+          'Balance': c.balance || 0,
+          'Estado': c.balance > 0 ? '⚠️ Con Deuda' : '✓ Al Corriente',
+        }));
+        
+        const ws = XLSX.utils.json_to_sheet(customersData);
+        
+        ws['!cols'] = [
+          { wch: 25 }, // Nombre
+          { wch: 25 }, // Email
+          { wch: 15 }, // Teléfono
+          { wch: 12 }, // Balance
+          { wch: 18 }, // Estado
+        ];
+        
+        ws['!autofilter'] = { ref: `A1:E${customersData.length + 1}` };
+        
+        XLSX.utils.book_append_sheet(wb, ws, 'Clientes');
       }
 
+      // Sección de Pagos
       if (reportSections.payments) {
         const payRes = await supabase.from('payments').select('*').gte('created_at', start).lte('created_at', end).order('created_at', { ascending: true });
         if (payRes.error) throw payRes.error;
         const payments = payRes.data || [];
-        doc.setFontSize(12);
-        if (y > 270) { doc.addPage(); y = 20; }
-        doc.text('Pagos', 14, y);
-        y += 6;
-        doc.setFontSize(9);
-        payments.slice(0, 200).forEach((p: any) => {
-          const line = `${new Date(p.created_at).toLocaleString('es-MX')} - $${(p.amount||0).toFixed(2)} - ${p.method}`;
-          if (y > 280) { doc.addPage(); y = 20; }
-          doc.text(line, 14, y);
-          y += 5;
-        });
-        y += 6;
+        
+        const paymentsData = payments.map((p: any) => ({
+          'Fecha': new Date(p.created_at).toLocaleString('es-MX'),
+          'Monto': p.amount || 0,
+          'Método': p.method,
+          'Cliente ID': p.customer_id || '-',
+          'Venta ID': p.sale_id || '-',
+        }));
+        
+        const ws = XLSX.utils.json_to_sheet(paymentsData);
+        
+        ws['!cols'] = [
+          { wch: 20 }, // Fecha
+          { wch: 12 }, // Monto
+          { wch: 15 }, // Método
+          { wch: 15 }, // Cliente ID
+          { wch: 15 }, // Venta ID
+        ];
+        
+        ws['!autofilter'] = { ref: `A1:E${paymentsData.length + 1}` };
+        
+        XLSX.utils.book_append_sheet(wb, ws, 'Pagos');
       }
 
-      const filename = `informe_${reportStart.replaceAll('-', '')}_${reportEnd.replaceAll('-', '')}.pdf`;
-      doc.save(filename);
+      // Generar y descargar el archivo Excel
+      const filename = `informe_${reportStart.replaceAll('-', '')}_${reportEnd.replaceAll('-', '')}.xlsx`;
+      XLSX.writeFile(wb, filename);
+      
       toast.dismiss();
-      toast.success('Informe generado');
+      toast.success('Informe Excel generado con filtros');
       setShowReportModal(false);
     } catch (error: any) {
       toast.dismiss();
@@ -251,9 +305,9 @@ export default function DashboardPage() {
             <div className="lg:col-span-2 flex justify-end">
               <button
                 onClick={() => setShowReportModal(true)}
-                className="mb-4 px-4 py-2 bg-blue-600 text-white rounded-lg shadow hover:bg-blue-700"
+                className="mb-4 px-4 py-2 bg-green-600 text-white rounded-lg shadow hover:bg-green-700"
               >
-                Generar Informe
+                📊 Generar Informe Excel
               </button>
             </div>
 
@@ -340,7 +394,7 @@ export default function DashboardPage() {
 
               <div className="flex gap-3 justify-end">
                 <button onClick={() => setShowReportModal(false)} className="px-4 py-2 rounded-lg bg-gray-200">Cancelar</button>
-                <button onClick={async () => { await generateReport(); }} className="px-4 py-2 rounded-lg bg-blue-600 text-white">Generar PDF</button>
+                <button onClick={async () => { await generateReport(); }} className="px-4 py-2 rounded-lg bg-green-600 text-white hover:bg-green-700">Generar Excel</button>
               </div>
             </div>
           </Modal>
