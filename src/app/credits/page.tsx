@@ -602,6 +602,7 @@ export default function CreditsPage() {
               }}
               title="Nota de Crédito"
               className="max-w-md max-h-[90vh] flex flex-col"
+              noPadding={true}
             >
             {/* Contenido con scroll */}
             <div className="overflow-y-auto flex-1 px-6 py-4 max-h-[calc(90vh-180px)]">
@@ -727,7 +728,7 @@ export default function CreditsPage() {
             }}
             className="max-w-2xl"
           >
-            <div className="p-6 space-y-4">
+            <div className="space-y-4">
               {/* Filtros de Estado */}
               <div className="border-b pb-4">
                 <h3 className="font-semibold mb-2 text-gray-700">Estado de los Créditos</h3>
