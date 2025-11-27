@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { Database } from '@/lib/supabase/database.types';
+import { formatWeekRange } from '@/lib/weekly-credits';
 import { Sidebar } from '@/components/sidebar';
 import { Navbar } from '@/components/navbar';
 import { Button } from '@/components/button';
@@ -125,7 +126,7 @@ export default function CreditsPage() {
       case 'closed':
         return 'Cerrado';
       case 'overdue':
-        return 'Vencido';
+        return 'Atrasado';
       default:
         return status;
     }
@@ -150,22 +151,34 @@ export default function CreditsPage() {
   });
 
   const handleShowTicket = async (credit: CreditDetail) => {
-    if (!credit.sale_id) {
-      toast.error('No hay venta asociada a este crédito');
-      return;
-    }
-
     try {
       setSelectedCredit(credit);
       toast.loading('Cargando productos...');
 
-      // Obtener los items de la venta
-      const { data: items, error } = await supabase
+      // Obtener todas las ventas asociadas a este crédito semanal usando credit_sales
+      const { data: creditSales, error: creditSalesError } = await supabase
+        .from('credit_sales')
+        .select('sale_id')
+        .eq('credit_id', credit.id);
+
+      if (creditSalesError) throw creditSalesError;
+
+      if (!creditSales || creditSales.length === 0) {
+        toast.dismiss();
+        toast.error('No hay ventas asociadas a esta nota');
+        return;
+      }
+
+      // Obtener los sale_ids
+      const saleIds = creditSales.map((cs: any) => cs.sale_id);
+
+      // Obtener todos los items de todas las ventas
+      const { data: items, error: itemsError } = await supabase
         .from('sale_items')
         .select('*')
-        .eq('sale_id', credit.sale_id);
+        .in('sale_id', saleIds);
 
-      if (error) throw error;
+      if (itemsError) throw itemsError;
 
       // Enriquecer con información del producto
       const enrichedItems = await Promise.all(
@@ -209,7 +222,7 @@ export default function CreditsPage() {
           <div className="bg-white rounded-lg shadow p-6 mb-6">
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
               <div className="text-center">
-                <p className="text-gray-600 text-sm">Total Abierto</p>
+                <p className="text-gray-600 text-sm">Actuales</p>
                 <p className="text-2xl font-bold text-blue-600">
                   ${credits
                     .filter((c) => c.status === 'open')
@@ -218,7 +231,7 @@ export default function CreditsPage() {
                 </p>
               </div>
               <div className="text-center">
-                <p className="text-gray-600 text-sm">Vencidos</p>
+                <p className="text-gray-600 text-sm">Atrasados</p>
                 <p className="text-2xl font-bold text-red-600">
                   ${credits
                     .filter((c) => c.status === 'overdue')
@@ -253,7 +266,7 @@ export default function CreditsPage() {
                   variant={filterStatus === status ? 'primary' : 'secondary'}
                   size="sm"
                 >
-                  {status === 'all' ? 'Todos' : status === 'open' ? 'Abiertos' : status === 'overdue' ? 'Vencidos' : 'Cerrados'}
+                  {status === 'all' ? 'Todos' : status === 'open' ? 'Actuales' : status === 'overdue' ? 'Atrasados' : 'Cerrados'}
                 </Button>
               ))}
             </div>
@@ -263,9 +276,9 @@ export default function CreditsPage() {
                 <thead className="bg-gray-50">
                   <tr>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Cliente</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Semana</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Pendiente</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Vencimiento</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Estado</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Acciones</th>
                   </tr>
@@ -277,13 +290,13 @@ export default function CreditsPage() {
                         {c.customer?.name || '-'}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        {c.week_start ? formatWeekRange(new Date(c.week_start)) : '-'}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                         ${c.total_amount.toFixed(2)}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                         ${c.outstanding_amount.toFixed(2)}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {c.due_date ? new Date(c.due_date).toLocaleDateString('es-MX') : '-'}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                         {getStatusEmoji(c.status)} {getStatusColor(c.status)}
@@ -323,41 +336,41 @@ export default function CreditsPage() {
             title="Nota de Crédito"
             className="max-w-md"
           >
-            <div className="bg-white p-6 font-mono text-sm">
+            <div className="bg-white p-6 font-mono text-sm text-gray-900">
               {/* Header */}
-              <div className="text-center mb-4 border-b-2 border-dashed pb-4">
-                <h2 className="text-xl font-bold">Tiendita C.P.S</h2>
-                <p className="text-xs text-gray-600 mt-1">Nota de Crédito</p>
+              <div className="text-center mb-4 border-b-2 border-gray-800 border-dashed pb-4">
+                <h2 className="text-2xl font-bold text-gray-900">Tiendita C.P.S</h2>
+                <p className="text-sm text-gray-700 mt-1 font-semibold">Nota de Crédito</p>
               </div>
 
               {/* Cliente Info */}
               {selectedCredit && (
-                <div className="mb-4 space-y-1 text-xs">
-                  <p><span className="font-semibold">Cliente:</span> {selectedCredit.customer?.name || '-'}</p>
-                  <p><span className="font-semibold">Fecha:</span> {new Date(selectedCredit.created_at).toLocaleString('es-MX')}</p>
-                  <p><span className="font-semibold">Vencimiento:</span> {selectedCredit.due_date ? new Date(selectedCredit.due_date).toLocaleDateString('es-MX') : '-'}</p>
-                  <p><span className="font-semibold">ID Venta:</span> {selectedCredit.sale_id?.slice(0, 8) || '-'}</p>
+                <div className="mb-4 space-y-1 text-sm text-gray-900">
+                  <p><span className="font-bold">Cliente:</span> {selectedCredit.customer?.name || '-'}</p>
+                  <p><span className="font-bold">Semana:</span> {selectedCredit.week_start ? formatWeekRange(new Date(selectedCredit.week_start)) : '-'}</p>
+                  <p><span className="font-bold">Fecha límite:</span> {selectedCredit.due_date ? new Date(selectedCredit.due_date).toLocaleDateString('es-MX') : '-'}</p>
+                  <p><span className="font-bold">ID Nota:</span> {selectedCredit.id?.slice(0, 8) || '-'}</p>
                 </div>
               )}
 
               {/* Items */}
-              <div className="border-t-2 border-dashed pt-2 mb-4">
-                <table className="w-full text-xs">
+              <div className="border-t-2 border-gray-800 border-dashed pt-3 mb-4">
+                <table className="w-full text-sm">
                   <thead>
-                    <tr className="border-b border-gray-300">
-                      <th className="text-left py-1">Producto</th>
-                      <th className="text-center py-1">Cant</th>
-                      <th className="text-right py-1">Precio</th>
-                      <th className="text-right py-1">Total</th>
+                    <tr className="border-b-2 border-gray-700">
+                      <th className="text-left py-2 font-bold text-gray-900">Producto</th>
+                      <th className="text-center py-2 font-bold text-gray-900">Cant</th>
+                      <th className="text-right py-2 font-bold text-gray-900">Precio</th>
+                      <th className="text-right py-2 font-bold text-gray-900">Total</th>
                     </tr>
                   </thead>
                   <tbody>
                     {saleItems.map((item) => (
-                      <tr key={item.id} className="border-b border-gray-200">
-                        <td className="py-2 pr-2">{item.product?.name || 'Producto'}</td>
-                        <td className="text-center">{item.quantity}</td>
-                        <td className="text-right">${item.unit_price.toFixed(2)}</td>
-                        <td className="text-right font-semibold">${item.total_price.toFixed(2)}</td>
+                      <tr key={item.id} className="border-b border-gray-400">
+                        <td className="py-2 pr-2 text-gray-900">{item.product?.name || 'Producto'}</td>
+                        <td className="text-center text-gray-900">{item.quantity}</td>
+                        <td className="text-right text-gray-900">${item.unit_price.toFixed(2)}</td>
+                        <td className="text-right font-bold text-gray-900">${item.total_price.toFixed(2)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -366,26 +379,25 @@ export default function CreditsPage() {
 
               {/* Totales */}
               {selectedCredit && (
-                <div className="border-t-2 border-dashed pt-3 space-y-2 text-sm">
-                  <div className="flex justify-between">
-                    <span className="font-semibold">Total:</span>
-                    <span className="font-bold text-lg">${selectedCredit.total_amount.toFixed(2)}</span>
+                <div className="border-t-2 border-gray-800 border-dashed pt-4 space-y-2 text-base">
+                  <div className="flex justify-between text-gray-900">
+                    <span className="font-bold">Total:</span>
+                    <span className="font-bold text-xl">${selectedCredit.total_amount.toFixed(2)}</span>
                   </div>
-                  <div className="flex justify-between text-red-600">
-                    <span className="font-semibold">Pendiente:</span>
-                    <span className="font-bold text-lg">${selectedCredit.outstanding_amount.toFixed(2)}</span>
+                  <div className="flex justify-between text-red-700">
+                    <span className="font-bold">Pendiente:</span>
+                    <span className="font-bold text-xl">${selectedCredit.outstanding_amount.toFixed(2)}</span>
                   </div>
-                  <div className="flex justify-between text-green-600">
-                    <span className="font-semibold">Pagado:</span>
-                    <span className="font-bold">${(selectedCredit.total_amount - selectedCredit.outstanding_amount).toFixed(2)}</span>
+                  <div className="flex justify-between text-green-700">
+                    <span className="font-bold">Pagado:</span>
+                    <span className="font-bold text-lg">${(selectedCredit.total_amount - selectedCredit.outstanding_amount).toFixed(2)}</span>
                   </div>
                 </div>
               )}
 
               {/* Footer */}
-              <div className="text-center mt-6 pt-4 border-t-2 border-dashed text-xs text-gray-600">
-                <p>¡Gracias por su preferencia!</p>
-                <p className="mt-1">DLP</p>
+              <div className="text-center mt-6 pt-4 border-t-2 border-gray-800 border-dashed text-sm text-gray-800">
+                <p className="font-semibold">¡DLP por su preferencia!</p>
               </div>
             </div>
 

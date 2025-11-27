@@ -219,6 +219,8 @@ export interface Database {
           due_date: string | null;
           status: string;
           created_at: string;
+          week_start: string | null;
+          week_end: string | null;
         };
         Insert: {
           id?: string;
@@ -229,6 +231,8 @@ export interface Database {
           due_date?: string | null;
           status: string;
           created_at?: string;
+          week_start?: string | null;
+          week_end?: string | null;
         };
         Update: {
           id?: string;
@@ -239,6 +243,8 @@ export interface Database {
           due_date?: string | null;
           status?: string;
           created_at?: string;
+          week_start?: string | null;
+          week_end?: string | null;
         };
       };
     };

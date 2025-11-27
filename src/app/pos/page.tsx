@@ -5,6 +5,7 @@ import { jsPDF } from 'jspdf';
 import { useRouter } from 'next/navigation';
 import { createClient, OPERATOR_ID } from '@/lib/supabase/client';
 import { Database } from '@/lib/supabase/database.types';
+import { getWeekStart, getWeekEnd, toDateString } from '@/lib/weekly-credits';
 import { Sidebar } from '@/components/sidebar';
 import { Navbar } from '@/components/navbar';
 import { Modal } from '@/components/modal';
@@ -332,15 +333,73 @@ export default function POSPage() {
       if (paymentMethod === 'credit' && selectedCustomer) {
         const customer = customers.find((c) => c.id === selectedCustomer);
         if (customer) {
-          const { error: creditError } = await supabase.from('credits').insert({
-            sale_id: sale.id,
-            customer_id: selectedCustomer,
-            total_amount: total,
-            outstanding_amount: total,
-            status: 'open',
-          });
-          if (creditError) throw creditError;
+          // Calcular las fechas de la semana actual
+          const now = new Date();
+          const weekStart = getWeekStart(now);
+          const weekEnd = getWeekEnd(weekStart);
+          const weekStartStr = toDateString(weekStart);
+          const weekEndStr = toDateString(weekEnd);
 
+          // Buscar si ya existe un crédito abierto para este cliente en la semana actual
+          const { data: existingCredit, error: creditFindError } = await supabase
+            .from('credits')
+            .select('*')
+            .eq('customer_id', selectedCustomer)
+            .eq('week_start', weekStartStr)
+            .eq('status', 'open')
+            .maybeSingle();
+
+          if (creditFindError) throw creditFindError;
+
+          let creditId: string;
+
+          if (existingCredit) {
+            // Actualizar el crédito existente sumando el monto de esta venta
+            const newTotal = existingCredit.total_amount + total;
+            const newOutstanding = existingCredit.outstanding_amount + total;
+
+            const { error: creditUpdateError } = await supabase
+              .from('credits')
+              .update({
+                total_amount: newTotal,
+                outstanding_amount: newOutstanding,
+              })
+              .eq('id', existingCredit.id);
+
+            if (creditUpdateError) throw creditUpdateError;
+            creditId = existingCredit.id;
+          } else {
+            // Crear un nuevo crédito para esta semana
+            const { data: newCredit, error: creditError } = await supabase
+              .from('credits')
+              .insert({
+                sale_id: null, // Ya no usamos este campo para créditos semanales
+                customer_id: selectedCustomer,
+                total_amount: total,
+                outstanding_amount: total,
+                status: 'open',
+                week_start: weekStartStr,
+                week_end: weekEndStr,
+                due_date: weekEndStr,
+              })
+              .select()
+              .single();
+
+            if (creditError) throw creditError;
+            creditId = newCredit.id;
+          }
+
+          // Registrar la relación entre el crédito y esta venta
+          const { error: creditSaleError } = await supabase
+            .from('credit_sales')
+            .insert({
+              credit_id: creditId,
+              sale_id: sale.id,
+            });
+
+          if (creditSaleError) throw creditSaleError;
+
+          // Actualizar el balance del cliente
           await supabase
             .from('customers')
             .update({ balance: customer.balance + total })
