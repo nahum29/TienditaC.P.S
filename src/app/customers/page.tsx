@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { Database } from '@/lib/supabase/database.types';
+import { formatWeekRange } from '@/lib/weekly-credits';
 import { Sidebar } from '@/components/sidebar';
 import { Navbar } from '@/components/navbar';
 import { Modal } from '@/components/modal';
@@ -12,6 +13,11 @@ import { Plus, Edit2, Trash2, DollarSign } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 type Customer = Database['public']['Tables']['customers']['Row'];
+type Credit = Database['public']['Tables']['credits']['Row'];
+
+interface CreditWithDetails extends Credit {
+  selected?: boolean;
+}
 
 export default function CustomersPage() {
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -21,6 +27,8 @@ export default function CustomersPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
   const [userId] = useState('00000000-0000-0000-0000-000000000000');
+  const [customerCredits, setCustomerCredits] = useState<CreditWithDetails[]>([]);
+  const [selectedCredits, setSelectedCredits] = useState<Set<string>>(new Set());
 
   const [formData, setFormData] = useState({
     name: '',
@@ -111,10 +119,56 @@ export default function CustomersPage() {
     }
   };
 
+  const handleOpenPaymentModal = async (customerId: string) => {
+    setSelectedCustomerId(customerId);
+    
+    // Cargar los créditos pendientes del cliente
+    try {
+      const { data: creditsData, error } = await supabase
+        .from('credits')
+        .select('*')
+        .eq('customer_id', customerId)
+        .in('status', ['open', 'overdue'])
+        .order('week_start', { ascending: true });
+
+      if (error) throw error;
+
+      const credits = creditsData || [];
+      setCustomerCredits(credits);
+
+      // Si solo hay un crédito, seleccionarlo automáticamente
+      if (credits.length === 1) {
+        setSelectedCredits(new Set([credits[0].id]));
+      } else {
+        setSelectedCredits(new Set());
+      }
+
+      setShowPaymentModal(true);
+    } catch (error) {
+      toast.error('Error al cargar créditos del cliente');
+      console.error(error);
+    }
+  };
+
+  const toggleCreditSelection = (creditId: string) => {
+    const newSelection = new Set(selectedCredits);
+    if (newSelection.has(creditId)) {
+      newSelection.delete(creditId);
+    } else {
+      newSelection.add(creditId);
+    }
+    setSelectedCredits(newSelection);
+  };
+
   const handlePayment = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!selectedCustomerId) return;
+
+    if (selectedCredits.size === 0) {
+      toast.error('Selecciona al menos una nota para pagar');
+      return;
+    }
 
     try {
       const customer = customers.find((c) => c.id === selectedCustomerId);
@@ -122,7 +176,12 @@ export default function CustomersPage() {
 
       const amount = parseFloat(paymentData.amount);
 
-      // Insert payment and capture the inserted row so we can record allocations
+      if (amount <= 0) {
+        toast.error('El monto debe ser mayor a 0');
+        return;
+      }
+
+      // Insert payment and capture the inserted row
       const { data: paymentRow, error: paymentError } = await supabase.from('payments').insert({
         customer_id: selectedCustomerId,
         amount,
@@ -133,31 +192,24 @@ export default function CustomersPage() {
 
       if (paymentError) throw paymentError;
 
-      const newBalance = Math.max(0, customer.balance - amount);
-      const { error: updateError } = await supabase
-        .from('customers')
-        .update({ balance: newBalance })
-        .eq('id', selectedCustomerId);
-
-      if (updateError) throw updateError;
-
-      // Fetch credits with outstanding balance (cover cases where status might be stale)
-      const { data: creditsData, error: creditsError } = await supabase
-        .from('credits')
-        // ensure we read both values; some historical rows may have outstanding_amount null
-        .select('id,outstanding_amount,total_amount')
-        .eq('customer_id', selectedCustomerId)
-        .order('created_at');
-
-      if (creditsError) throw creditsError;
+      // Obtener los créditos seleccionados ordenados por antigüedad (primero los más viejos)
+      const selectedCreditsData = customerCredits
+        .filter(c => selectedCredits.has(c.id))
+        .sort((a, b) => {
+          // Ordenar: primero atrasados, luego por fecha de semana
+          if (a.status === 'overdue' && b.status !== 'overdue') return -1;
+          if (a.status !== 'overdue' && b.status === 'overdue') return 1;
+          return new Date(a.week_start || a.created_at).getTime() - new Date(b.week_start || b.created_at).getTime();
+        });
 
       let remainingAmount = amount;
-      const allocations: { credit_id: string; paid: number }[] = [];
-      for (const credit of creditsData || []) {
+      const allocations: { credit_id: string; paid: number; week: string }[] = [];
+
+      // Aplicar el pago a los créditos seleccionados (primero el más viejo)
+      for (const credit of selectedCreditsData) {
         if (remainingAmount <= 0) break;
 
-        // if outstanding_amount is null (older rows), fall back to total_amount
-        const currentOutstanding = (credit.outstanding_amount ?? credit.total_amount ?? 0);
+        const currentOutstanding = credit.outstanding_amount ?? credit.total_amount ?? 0;
         if (currentOutstanding <= 0) continue;
 
         const paid = Math.min(remainingAmount, currentOutstanding);
@@ -167,20 +219,37 @@ export default function CustomersPage() {
           .from('credits')
           .update({
             outstanding_amount: newOutstanding,
-            status: newOutstanding === 0 ? 'closed' : 'open',
+            status: newOutstanding === 0 ? 'closed' : credit.status,
           })
           .eq('id', credit.id);
 
         if (creditUpdateError) throw creditUpdateError;
 
-        allocations.push({ credit_id: credit.id, paid });
+        allocations.push({ 
+          credit_id: credit.id, 
+          paid,
+          week: credit.week_start ? formatWeekRange(new Date(credit.week_start)) : 'N/A'
+        });
         remainingAmount -= paid;
       }
+
+      // Actualizar balance del cliente
+      const newBalance = Math.max(0, customer.balance - amount);
+      const { error: updateError } = await supabase
+        .from('customers')
+        .update({ balance: newBalance })
+        .eq('id', selectedCustomerId);
+
+      if (updateError) throw updateError;
 
       // Insert allocation rows into credit_payments for audit trail
       try {
         if (allocations.length > 0 && paymentRow?.id) {
-          const inserts = allocations.map((a) => ({ credit_id: a.credit_id, payment_id: paymentRow.id, amount: a.paid }));
+          const inserts = allocations.map((a) => ({ 
+            credit_id: a.credit_id, 
+            payment_id: paymentRow.id, 
+            amount: a.paid 
+          }));
           const { error: allocErr } = await supabase.from('credit_payments').insert(inserts);
           if (allocErr) {
             console.error('Error inserting credit_payments', allocErr);
@@ -192,46 +261,45 @@ export default function CustomersPage() {
         toast.error('Error al crear registros de asignación');
       }
 
-      // Update payment notes with allocation details for audit trail
+      // Update payment notes with allocation details
       try {
-        await supabase.from('payments').update({ notes: JSON.stringify({ ...(paymentRow?.notes ? { originalNotes: paymentRow.notes } : {}), allocations }) }).eq('id', paymentRow?.id);
+        await supabase.from('payments').update({ 
+          notes: JSON.stringify({ 
+            ...(paymentRow?.notes ? { originalNotes: paymentRow.notes } : {}), 
+            allocations 
+          }) 
+        }).eq('id', paymentRow?.id);
       } catch (e) {
         console.warn('No se pudo actualizar notas de pago con asignaciones', e);
       }
 
-      // Notify other UI (credits page) that credits were updated so it can refetch immediately
+      // Notify other UI
       try {
         const bc = new BroadcastChannel('pos-updates');
         bc.postMessage({ type: 'credits-updated', customer_id: selectedCustomerId });
         bc.close();
       } catch (e) {
-        // BroadcastChannel may not be available in all environments; ignore silently
+        // ignore
       }
 
-      // As a more compatible fallback, re-read credits to ensure DB changes are visible
-      // and write a localStorage flag so other tabs/listeners can pick it up.
       try {
-        const { data: postCredits } = await supabase
-          .from('credits')
-          .select('id,total_amount,outstanding_amount,status')
-          .eq('customer_id', selectedCustomerId);
-        // store a small payload so storage events fire across tabs
-        try {
-          localStorage.setItem('pos:credits-updated', JSON.stringify({ customer_id: selectedCustomerId, ts: Date.now() }));
-        } catch (e) {
-          // ignore storage errors (e.g., privacy settings)
-        }
-        console.debug('Credits after payment:', postCredits);
+        localStorage.setItem('pos:credits-updated', JSON.stringify({ 
+          customer_id: selectedCustomerId, 
+          ts: Date.now() 
+        }));
       } catch (e) {
-        console.warn('Could not re-read credits after payment', e);
+        // ignore
       }
 
-      toast.success('Pago registrado exitosamente');
+      toast.success(`Pago de $${amount.toFixed(2)} registrado exitosamente`);
       setShowPaymentModal(false);
       setPaymentData({ amount: '', method: 'cash', notes: '' });
+      setSelectedCredits(new Set());
+      setCustomerCredits([]);
       fetchData();
     } catch (error) {
       toast.error('Error al registrar pago');
+      console.error(error);
     }
   };
 
@@ -269,10 +337,7 @@ export default function CustomersPage() {
               actions={[
                 {
                   label: 'Pago',
-                  onClick: (i) => {
-                    setSelectedCustomerId(customers[i].id);
-                    setShowPaymentModal(true);
-                  },
+                  onClick: (i) => handleOpenPaymentModal(customers[i].id),
                 },
                 { label: 'Editar', onClick: (i) => handleEdit(customers[i]) },
                 { label: 'Eliminar', onClick: (i) => handleDelete(customers[i].id), variant: 'danger' },
@@ -333,11 +398,83 @@ export default function CustomersPage() {
 
           <Modal
             isOpen={showPaymentModal}
-            onClose={() => { setShowPaymentModal(false); setSelectedCustomerId(null); }}
+            onClose={() => { 
+              setShowPaymentModal(false); 
+              setSelectedCustomerId(null);
+              setSelectedCredits(new Set());
+              setCustomerCredits([]);
+            }}
             title="Registrar Pago"
-            className="max-w-md"
+            className="max-w-2xl"
           >
             <form onSubmit={handlePayment} className="space-y-4">
+              {/* Mostrar notas del cliente para seleccionar */}
+              {customerCredits.length > 0 && (
+                <div className="mb-4">
+                  <label className="block text-sm font-bold text-gray-900 mb-2">
+                    Selecciona las notas a pagar:
+                  </label>
+                  <div className="border rounded-lg overflow-hidden">
+                    <table className="min-w-full divide-y divide-gray-200">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Selec.</th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Semana</th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Total</th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Pendiente</th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Estado</th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-gray-200">
+                        {customerCredits.map((credit) => (
+                          <tr 
+                            key={credit.id} 
+                            className={`hover:bg-gray-50 cursor-pointer ${selectedCredits.has(credit.id) ? 'bg-blue-50' : ''}`}
+                            onClick={() => toggleCreditSelection(credit.id)}
+                          >
+                            <td className="px-4 py-3">
+                              <input
+                                type="checkbox"
+                                checked={selectedCredits.has(credit.id)}
+                                onChange={() => toggleCreditSelection(credit.id)}
+                                className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                              />
+                            </td>
+                            <td className="px-4 py-3 text-sm text-gray-900">
+                              {credit.week_start ? formatWeekRange(new Date(credit.week_start)) : '-'}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-gray-900 font-semibold">
+                              ${credit.total_amount.toFixed(2)}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-red-600 font-bold">
+                              ${credit.outstanding_amount.toFixed(2)}
+                            </td>
+                            <td className="px-4 py-3 text-sm">
+                              <span className={`px-2 py-1 rounded text-xs font-semibold ${
+                                credit.status === 'overdue' 
+                                  ? 'bg-red-100 text-red-800' 
+                                  : 'bg-blue-100 text-blue-800'
+                              }`}>
+                                {credit.status === 'overdue' ? '⚠️ Atrasado' : '📋 Actual'}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <p className="text-xs text-gray-600 mt-2">
+                    💡 El pago se aplicará primero a las notas más antiguas (atrasadas)
+                  </p>
+                </div>
+              )}
+
+              {customerCredits.length === 0 && (
+                <div className="text-center py-4 text-gray-500">
+                  Este cliente no tiene notas pendientes
+                </div>
+              )}
+
               <input
                 type="number"
                 placeholder="Cantidad a pagar"
@@ -347,6 +484,7 @@ export default function CustomersPage() {
                 className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder-gray-400 text-gray-800"
                 required
               />
+              
               <select
                 value={paymentData.method}
                 onChange={(e) => setPaymentData({ ...paymentData, method: e.target.value as typeof paymentData.method })}
@@ -356,20 +494,32 @@ export default function CustomersPage() {
                 <option value="card">Tarjeta</option>
                 <option value="other">Otro</option>
               </select>
+              
               <textarea
                 placeholder="Notas (opcional)"
                 value={paymentData.notes}
                 onChange={(e) => setPaymentData({ ...paymentData, notes: e.target.value })}
-                className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder-gray-400 text-gray-800"
+                rows={3}
               />
+              
               <div className="flex gap-3">
-                <Button type="submit" className="flex-1">
+                <Button 
+                  type="submit" 
+                  className="flex-1"
+                  disabled={customerCredits.length > 0 && selectedCredits.size === 0}
+                >
                   Registrar Pago
                 </Button>
                 <Button
                   type="button"
                   variant="secondary"
-                  onClick={() => { setShowPaymentModal(false); setSelectedCustomerId(null); }}
+                  onClick={() => { 
+                    setShowPaymentModal(false); 
+                    setSelectedCustomerId(null);
+                    setSelectedCredits(new Set());
+                    setCustomerCredits([]);
+                  }}
                   className="flex-1"
                 >
                   Cancelar
