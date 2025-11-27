@@ -7,21 +7,32 @@ import { Sidebar } from '@/components/sidebar';
 import { Navbar } from '@/components/navbar';
 import { Button } from '@/components/button';
 import { Table } from '@/components/table';
+import { Modal } from '@/components/modal';
+import { FileText } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 type Credit = Database['public']['Tables']['credits']['Row'];
 type Customer = Database['public']['Tables']['customers']['Row'];
 type Sale = Database['public']['Tables']['sales']['Row'];
+type SaleItem = Database['public']['Tables']['sale_items']['Row'];
+type Product = Database['public']['Tables']['products']['Row'];
 
 interface CreditDetail extends Credit {
   customer?: Customer;
   sale?: Sale;
 }
 
+interface SaleItemDetail extends SaleItem {
+  product?: Product;
+}
+
 export default function CreditsPage() {
   const [credits, setCredits] = useState<CreditDetail[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterStatus, setFilterStatus] = useState<'all' | 'open' | 'overdue' | 'closed'>('all');
+  const [showTicketModal, setShowTicketModal] = useState(false);
+  const [selectedCredit, setSelectedCredit] = useState<CreditDetail | null>(null);
+  const [saleItems, setSaleItems] = useState<SaleItemDetail[]>([]);
 
   const supabase = createClient();
 
@@ -138,13 +149,49 @@ export default function CreditsPage() {
     return c.status === filterStatus;
   });
 
-  const tableRows = filteredCredits.map((c) => [
-    c.customer?.name || '-',
-    `$${c.total_amount.toFixed(2)}`,
-    `$${c.outstanding_amount.toFixed(2)}`,
-    c.due_date ? new Date(c.due_date).toLocaleDateString('es-MX') : '-',
-    `${getStatusEmoji(c.status)} ${getStatusColor(c.status)}`,
-  ]);
+  const handleShowTicket = async (credit: CreditDetail) => {
+    if (!credit.sale_id) {
+      toast.error('No hay venta asociada a este crédito');
+      return;
+    }
+
+    try {
+      setSelectedCredit(credit);
+      toast.loading('Cargando productos...');
+
+      // Obtener los items de la venta
+      const { data: items, error } = await supabase
+        .from('sale_items')
+        .select('*')
+        .eq('sale_id', credit.sale_id);
+
+      if (error) throw error;
+
+      // Enriquecer con información del producto
+      const enrichedItems = await Promise.all(
+        (items || []).map(async (item: SaleItemDetail) => {
+          const { data: product } = await supabase
+            .from('products')
+            .select('*')
+            .eq('id', item.product_id)
+            .single();
+          
+          return {
+            ...item,
+            product: product || undefined,
+          };
+        })
+      );
+
+      setSaleItems(enrichedItems);
+      toast.dismiss();
+      setShowTicketModal(true);
+    } catch (error) {
+      toast.dismiss();
+      toast.error('Error al cargar productos');
+      console.error(error);
+    }
+  };
 
   if (loading) {
     const { LoadingEagle } = require('@/components/loading-eagle');
@@ -211,11 +258,158 @@ export default function CreditsPage() {
               ))}
             </div>
 
-            <Table
-              headers={['Cliente', 'Total', 'Pendiente', 'Vencimiento', 'Estado']}
-              rows={tableRows}
-            />
+            <div className="overflow-x-auto">
+              <table className="min-w-full">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Cliente</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Pendiente</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Vencimiento</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Estado</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {filteredCredits.map((c) => (
+                    <tr key={c.id} className="hover:bg-gray-50">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                        {c.customer?.name || '-'}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        ${c.total_amount.toFixed(2)}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        ${c.outstanding_amount.toFixed(2)}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        {c.due_date ? new Date(c.due_date).toLocaleDateString('es-MX') : '-'}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        {getStatusEmoji(c.status)} {getStatusColor(c.status)}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm">
+                        <Button
+                          onClick={() => handleShowTicket(c)}
+                          variant="secondary"
+                          size="sm"
+                        >
+                          <FileText className="w-4 h-4 mr-1" />
+                          Nota
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                  {filteredCredits.length === 0 && (
+                    <tr>
+                      <td colSpan={6} className="px-6 py-8 text-center text-gray-500">
+                        No hay créditos para mostrar
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
+
+          {/* Modal de Ticket */}
+          <Modal
+            isOpen={showTicketModal}
+            onClose={() => {
+              setShowTicketModal(false);
+              setSelectedCredit(null);
+              setSaleItems([]);
+            }}
+            title="Nota de Crédito"
+            className="max-w-md"
+          >
+            <div className="bg-white p-6 font-mono text-sm">
+              {/* Header */}
+              <div className="text-center mb-4 border-b-2 border-dashed pb-4">
+                <h2 className="text-xl font-bold">Tiendita C.P.S</h2>
+                <p className="text-xs text-gray-600 mt-1">Nota de Crédito</p>
+              </div>
+
+              {/* Cliente Info */}
+              {selectedCredit && (
+                <div className="mb-4 space-y-1 text-xs">
+                  <p><span className="font-semibold">Cliente:</span> {selectedCredit.customer?.name || '-'}</p>
+                  <p><span className="font-semibold">Fecha:</span> {new Date(selectedCredit.created_at).toLocaleString('es-MX')}</p>
+                  <p><span className="font-semibold">Vencimiento:</span> {selectedCredit.due_date ? new Date(selectedCredit.due_date).toLocaleDateString('es-MX') : '-'}</p>
+                  <p><span className="font-semibold">ID Venta:</span> {selectedCredit.sale_id?.slice(0, 8) || '-'}</p>
+                </div>
+              )}
+
+              {/* Items */}
+              <div className="border-t-2 border-dashed pt-2 mb-4">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b border-gray-300">
+                      <th className="text-left py-1">Producto</th>
+                      <th className="text-center py-1">Cant</th>
+                      <th className="text-right py-1">Precio</th>
+                      <th className="text-right py-1">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {saleItems.map((item) => (
+                      <tr key={item.id} className="border-b border-gray-200">
+                        <td className="py-2 pr-2">{item.product?.name || 'Producto'}</td>
+                        <td className="text-center">{item.quantity}</td>
+                        <td className="text-right">${item.unit_price.toFixed(2)}</td>
+                        <td className="text-right font-semibold">${item.total_price.toFixed(2)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Totales */}
+              {selectedCredit && (
+                <div className="border-t-2 border-dashed pt-3 space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="font-semibold">Total:</span>
+                    <span className="font-bold text-lg">${selectedCredit.total_amount.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between text-red-600">
+                    <span className="font-semibold">Pendiente:</span>
+                    <span className="font-bold text-lg">${selectedCredit.outstanding_amount.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between text-green-600">
+                    <span className="font-semibold">Pagado:</span>
+                    <span className="font-bold">${(selectedCredit.total_amount - selectedCredit.outstanding_amount).toFixed(2)}</span>
+                  </div>
+                </div>
+              )}
+
+              {/* Footer */}
+              <div className="text-center mt-6 pt-4 border-t-2 border-dashed text-xs text-gray-600">
+                <p>¡Gracias por su preferencia!</p>
+                <p className="mt-1">DLP</p>
+              </div>
+            </div>
+
+            <div className="mt-4 flex justify-end gap-2">
+              <Button
+                onClick={() => {
+                  setShowTicketModal(false);
+                  setSelectedCredit(null);
+                  setSaleItems([]);
+                }}
+                variant="secondary"
+              >
+                Cerrar
+              </Button>
+              <Button
+                onClick={() => {
+                  window.print();
+                }}
+                variant="primary"
+              >
+                Imprimir
+              </Button>
+            </div>
+          </Modal>
         </main>
       </div>
     </div>
