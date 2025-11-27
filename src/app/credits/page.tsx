@@ -35,6 +35,15 @@ export default function CreditsPage() {
   const [showTicketModal, setShowTicketModal] = useState(false);
   const [selectedCredit, setSelectedCredit] = useState<CreditDetail | null>(null);
   const [saleItems, setSaleItems] = useState<SaleItemDetail[]>([]);
+  
+  // Estados para impresión masiva
+  const [showBulkPrintModal, setShowBulkPrintModal] = useState(false);
+  const [bulkPrintFilters, setBulkPrintFilters] = useState({
+    includeActuales: true,
+    includeAtrasados: false,
+    selectedCustomers: new Set<string>(),
+  });
+  const [availableCustomers, setAvailableCustomers] = useState<Customer[]>([]);
 
   const supabase = createClient();
 
@@ -228,6 +237,232 @@ export default function CreditsPage() {
     }
   };
 
+  const handleOpenBulkPrintModal = () => {
+    // Obtener lista única de clientes con créditos pendientes
+    const uniqueCustomers = new Map<string, Customer>();
+    credits.forEach(credit => {
+      if (credit.customer && (credit.status === 'open' || credit.status === 'overdue')) {
+        uniqueCustomers.set(credit.customer.id, credit.customer);
+      }
+    });
+    
+    setAvailableCustomers(Array.from(uniqueCustomers.values()));
+    setShowBulkPrintModal(true);
+  };
+
+  const toggleCustomerSelection = (customerId: string) => {
+    const newSelection = new Set(bulkPrintFilters.selectedCustomers);
+    if (newSelection.has(customerId)) {
+      newSelection.delete(customerId);
+    } else {
+      newSelection.add(customerId);
+    }
+    setBulkPrintFilters({ ...bulkPrintFilters, selectedCustomers: newSelection });
+  };
+
+  const toggleAllCustomers = () => {
+    if (bulkPrintFilters.selectedCustomers.size === availableCustomers.length) {
+      setBulkPrintFilters({ ...bulkPrintFilters, selectedCustomers: new Set() });
+    } else {
+      setBulkPrintFilters({ 
+        ...bulkPrintFilters, 
+        selectedCustomers: new Set(availableCustomers.map(c => c.id)) 
+      });
+    }
+  };
+
+  const handleBulkPrint = () => {
+    // Filtrar créditos según criterios
+    const creditsToPrint = credits.filter(credit => {
+      // Filtro por estado
+      const matchesStatus = 
+        (bulkPrintFilters.includeActuales && credit.status === 'open') ||
+        (bulkPrintFilters.includeAtrasados && credit.status === 'overdue');
+      
+      if (!matchesStatus) return false;
+
+      // Filtro por clientes (si no hay selección, incluir todos)
+      if (bulkPrintFilters.selectedCustomers.size > 0) {
+        return bulkPrintFilters.selectedCustomers.has(credit.customer_id);
+      }
+
+      return true;
+    });
+
+    if (creditsToPrint.length === 0) {
+      toast.error('No hay notas que cumplan con los filtros seleccionados');
+      return;
+    }
+
+    toast.success(`Preparando ${creditsToPrint.length} ticket(s) para imprimir...`);
+    setShowBulkPrintModal(false);
+    
+    // Generar HTML para imprimir
+    generateBulkPrintHTML(creditsToPrint);
+  };
+
+  const generateBulkPrintHTML = async (creditsToPrint: CreditDetail[]) => {
+    try {
+      toast.loading('Generando tickets...');
+      
+      // Crear contenedor para todos los tickets
+      const printContainer = document.createElement('div');
+      printContainer.style.cssText = 'position: absolute; left: -9999px;';
+      document.body.appendChild(printContainer);
+
+      // Generar cada ticket
+      for (const credit of creditsToPrint) {
+        // Obtener datos del crédito
+        const { data: creditSales } = await supabase
+          .from('credit_sales')
+          .select('sale_id')
+          .eq('credit_id', credit.id);
+
+        if (!creditSales || creditSales.length === 0) continue;
+
+        const saleIds = creditSales.map((cs: any) => cs.sale_id);
+
+        const { data: sales } = await supabase.from('sales').select('*').in('id', saleIds);
+        const salesMap = new Map((sales || []).map((sale: Sale) => [sale.id, sale]));
+
+        const { data: items } = await supabase.from('sale_items').select('*').in('sale_id', saleIds);
+
+        const enrichedItems = await Promise.all(
+          (items || []).map(async (item: SaleItemDetail) => {
+            const { data: product } = await supabase
+              .from('products')
+              .select('*')
+              .eq('id', item.product_id)
+              .single();
+            
+            return {
+              ...item,
+              product: product || undefined,
+              sale: salesMap.get(item.sale_id),
+            };
+          })
+        );
+
+        enrichedItems.sort((a, b) => {
+          const dateA = a.sale?.created_at ? new Date(a.sale.created_at).getTime() : 0;
+          const dateB = b.sale?.created_at ? new Date(b.sale.created_at).getTime() : 0;
+          return dateA - dateB;
+        });
+
+        // Crear HTML del ticket
+        const ticketHTML = createTicketHTML(credit, enrichedItems);
+        const ticketDiv = document.createElement('div');
+        ticketDiv.innerHTML = ticketHTML;
+        ticketDiv.style.cssText = 'page-break-after: always; padding: 20px;';
+        printContainer.appendChild(ticketDiv);
+      }
+
+      toast.dismiss();
+      
+      // Abrir ventana de impresión
+      const printWindow = window.open('', '_blank');
+      if (printWindow) {
+        printWindow.document.write(`
+          <!DOCTYPE html>
+          <html>
+            <head>
+              <title>Tickets de Crédito</title>
+              <style>
+                body { font-family: monospace; }
+                @media print {
+                  body { margin: 0; }
+                  .ticket { page-break-after: always; }
+                }
+              </style>
+            </head>
+            <body>${printContainer.innerHTML}</body>
+          </html>
+        `);
+        printWindow.document.close();
+        printWindow.print();
+      }
+
+      document.body.removeChild(printContainer);
+    } catch (error) {
+      toast.dismiss();
+      toast.error('Error al generar tickets');
+      console.error(error);
+    }
+  };
+
+  const createTicketHTML = (credit: CreditDetail, items: SaleItemDetail[]) => {
+    const itemsHTML = items.map((item, index) => {
+      const showDateHeader = index === 0 || 
+        (item.sale?.created_at !== items[index - 1]?.sale?.created_at);
+      
+      const dateHeader = showDateHeader && item.sale?.created_at ? `
+        <div style="background: #f3f4f6; padding: 4px 8px; margin: 8px 0 4px 0; border-radius: 4px;">
+          <p style="font-size: 11px; font-weight: bold; margin: 0;">
+            📅 ${new Date(item.sale.created_at).toLocaleDateString('es-MX', { 
+              weekday: 'short', 
+              day: '2-digit', 
+              month: 'short' 
+            })} - ${new Date(item.sale.created_at).toLocaleTimeString('es-MX', { 
+              hour: '2-digit', 
+              minute: '2-digit' 
+            })}
+          </p>
+        </div>
+      ` : '';
+
+      return `
+        ${dateHeader}
+        <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #ddd; padding: 8px 0; font-size: 12px;">
+          <div style="flex: 1;">
+            <p style="margin: 0; font-weight: bold;">${item.product?.name || 'Producto'}</p>
+            <p style="margin: 4px 0 0 0; color: #666;">${item.quantity} x $${item.unit_price.toFixed(2)}</p>
+          </div>
+          <div style="font-weight: bold;">$${item.total_price.toFixed(2)}</div>
+        </div>
+      `;
+    }).join('');
+
+    return `
+      <div class="ticket" style="max-width: 400px; margin: 0 auto; font-family: monospace;">
+        <div style="text-align: center; border-bottom: 2px dashed #333; padding-bottom: 16px; margin-bottom: 16px;">
+          <h2 style="font-size: 24px; margin: 0;">Tiendita C.P.S</h2>
+          <p style="font-size: 14px; margin: 8px 0 0 0; font-weight: bold;">Nota de Crédito</p>
+        </div>
+
+        <div style="margin-bottom: 16px; font-size: 14px;">
+          <p style="margin: 4px 0;"><strong>Cliente:</strong> ${credit.customer?.name || '-'}</p>
+          <p style="margin: 4px 0;"><strong>Semana:</strong> ${credit.week_start ? formatWeekRange(new Date(credit.week_start)) : '-'}</p>
+          <p style="margin: 4px 0;"><strong>Fecha límite:</strong> ${credit.due_date ? new Date(credit.due_date).toLocaleDateString('es-MX') : '-'}</p>
+          <p style="margin: 4px 0;"><strong>ID Nota:</strong> ${credit.id?.slice(0, 8) || '-'}</p>
+        </div>
+
+        <div style="border-top: 2px dashed #333; padding-top: 12px; margin-bottom: 16px;">
+          ${itemsHTML}
+        </div>
+
+        <div style="border-top: 2px dashed #333; padding-top: 16px; font-size: 16px;">
+          <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+            <strong>Total:</strong>
+            <strong style="font-size: 20px;">$${credit.total_amount.toFixed(2)}</strong>
+          </div>
+          <div style="display: flex; justify-content: space-between; color: #b91c1c; margin-bottom: 8px;">
+            <strong>Pendiente:</strong>
+            <strong style="font-size: 20px;">$${credit.outstanding_amount.toFixed(2)}</strong>
+          </div>
+          <div style="display: flex; justify-content: space-between; color: #15803d;">
+            <strong>Pagado:</strong>
+            <strong style="font-size: 18px;">$${(credit.total_amount - credit.outstanding_amount).toFixed(2)}</strong>
+          </div>
+        </div>
+
+        <div style="text-align: center; margin-top: 24px; padding-top: 16px; border-top: 2px dashed #333; font-size: 14px;">
+          <p style="margin: 0; font-weight: bold;">DLP</p>
+          <p style="margin: 4px 0 0 0; font-size: 11px;">Dios le pague</p>
+        </div>
+      </div>
+    `;
+  };
+
   if (loading) {
     const { LoadingEagle } = require('@/components/loading-eagle');
     return <LoadingEagle />;
@@ -280,17 +515,26 @@ export default function CreditsPage() {
           </div>
 
           <div className="bg-white rounded-lg shadow p-6 mb-6">
-            <div className="flex flex-wrap gap-2 mb-4">
-              {['all', 'open', 'overdue', 'closed'].map((status) => (
-                <Button
-                  key={status}
-                  onClick={() => setFilterStatus(status as typeof filterStatus)}
-                  variant={filterStatus === status ? 'primary' : 'secondary'}
-                  size="sm"
-                >
-                  {status === 'all' ? 'Todos' : status === 'open' ? 'Actuales' : status === 'overdue' ? 'Atrasados' : 'Cerrados'}
-                </Button>
-              ))}
+            <div className="flex flex-wrap gap-2 mb-4 items-center justify-between">
+              <div className="flex flex-wrap gap-2">
+                {['all', 'open', 'overdue', 'closed'].map((status) => (
+                  <Button
+                    key={status}
+                    onClick={() => setFilterStatus(status as typeof filterStatus)}
+                    variant={filterStatus === status ? 'primary' : 'secondary'}
+                    size="sm"
+                  >
+                    {status === 'all' ? 'Todos' : status === 'open' ? 'Actuales' : status === 'overdue' ? 'Atrasados' : 'Cerrados'}
+                  </Button>
+                ))}
+              </div>
+              <Button
+                onClick={handleOpenBulkPrintModal}
+                variant="primary"
+                size="sm"
+              >
+                🖨️ Imprimir Todos
+              </Button>
             </div>
 
             <div className="overflow-x-auto">
@@ -348,16 +592,17 @@ export default function CreditsPage() {
           </div>
 
           {/* Modal de Ticket */}
-          <Modal
-            isOpen={showTicketModal}
-            onClose={() => {
-              setShowTicketModal(false);
-              setSelectedCredit(null);
-              setSaleItems([]);
-            }}
-            title="Nota de Crédito"
-            className="max-w-md"
-          >
+          {showTicketModal && (
+            <Modal
+              isOpen={showTicketModal}
+              onClose={() => {
+                setShowTicketModal(false);
+                setSelectedCredit(null);
+                setSaleItems([]);
+              }}
+              title="Nota de Crédito"
+              className="max-w-md"
+            >
             <div className="bg-white p-6 font-mono text-sm text-gray-900">
               {/* Header */}
               <div className="text-center mb-4 border-b-2 border-gray-800 border-dashed pb-4">
@@ -461,6 +706,143 @@ export default function CreditsPage() {
               </Button>
             </div>
           </Modal>
+        )}
+
+        {/* Modal de Impresión Masiva */}
+        {showBulkPrintModal && (
+          <Modal
+            title="Imprimir Tickets Masivamente"
+            isOpen={showBulkPrintModal}
+            onClose={() => {
+              setShowBulkPrintModal(false);
+              setBulkPrintFilters({
+                includeActuales: true,
+                includeAtrasados: false,
+                selectedCustomers: new Set()
+              });
+            }}
+          >
+            <div className="space-y-4">
+              {/* Filtros de Estado */}
+              <div className="border-b pb-4">
+                <h3 className="font-semibold mb-2 text-gray-700">Estado de los Créditos</h3>
+                <div className="flex gap-4">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={bulkPrintFilters.includeActuales}
+                      onChange={(e) =>
+                        setBulkPrintFilters({
+                          ...bulkPrintFilters,
+                          includeActuales: e.target.checked,
+                        })
+                      }
+                      className="w-4 h-4 text-blue-600"
+                    />
+                    <span>Semana Actual</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={bulkPrintFilters.includeAtrasados}
+                      onChange={(e) =>
+                        setBulkPrintFilters({
+                          ...bulkPrintFilters,
+                          includeAtrasados: e.target.checked,
+                        })
+                      }
+                      className="w-4 h-4 text-blue-600"
+                    />
+                    <span>Atrasados</span>
+                  </label>
+                </div>
+              </div>
+
+              {/* Filtros de Clientes */}
+              <div>
+                <div className="flex justify-between items-center mb-2">
+                  <h3 className="font-semibold text-gray-700">Clientes</h3>
+                  <Button
+                    onClick={toggleAllCustomers}
+                    variant="secondary"
+                    size="sm"
+                  >
+                    {bulkPrintFilters.selectedCustomers.size === availableCustomers.length
+                      ? 'Deseleccionar Todos'
+                      : 'Seleccionar Todos'}
+                  </Button>
+                </div>
+                <div className="max-h-64 overflow-y-auto border rounded p-2 space-y-1">
+                  {availableCustomers.map((customer) => (
+                    <label
+                      key={customer.id}
+                      className="flex items-center gap-2 p-2 hover:bg-gray-50 rounded cursor-pointer"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={bulkPrintFilters.selectedCustomers.has(customer.id)}
+                        onChange={() => toggleCustomerSelection(customer.id)}
+                        className="w-4 h-4 text-blue-600"
+                      />
+                      <span>{customer.name}</span>
+                    </label>
+                  ))}
+                  {availableCustomers.length === 0 && (
+                    <p className="text-gray-500 text-sm text-center py-4">
+                      No hay clientes con créditos pendientes
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {/* Preview de cuántos tickets se imprimirán */}
+              <div className="bg-blue-50 border border-blue-200 rounded p-3 text-sm">
+                <p className="text-gray-700">
+                  Se imprimirán{' '}
+                  <strong>
+                    {
+                      credits.filter(
+                        (c) =>
+                          c.outstanding_amount > 0 &&
+                          ((bulkPrintFilters.includeActuales && c.status === 'open') ||
+                            (bulkPrintFilters.includeAtrasados && c.status === 'overdue')) &&
+                          (bulkPrintFilters.selectedCustomers.size === 0 ||
+                            bulkPrintFilters.selectedCustomers.has(c.customer_id))
+                      ).length
+                    }
+                  </strong>{' '}
+                  tickets
+                </p>
+              </div>
+
+              {/* Botones de Acción */}
+              <div className="flex justify-end gap-2 pt-2">
+                <Button
+                  onClick={() => {
+                    setShowBulkPrintModal(false);
+                    setBulkPrintFilters({
+                      includeActuales: true,
+                      includeAtrasados: false,
+                      selectedCustomers: new Set()
+                    });
+                  }}
+                  variant="secondary"
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  onClick={handleBulkPrint}
+                  variant="primary"
+                  disabled={
+                    !bulkPrintFilters.includeActuales && !bulkPrintFilters.includeAtrasados
+                  }
+                >
+                  Imprimir
+                </Button>
+              </div>
+            </div>
+          </Modal>
+        )}
         </main>
       </div>
     </div>
