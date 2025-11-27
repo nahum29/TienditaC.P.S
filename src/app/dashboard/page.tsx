@@ -260,11 +260,10 @@ export default function DashboardPage() {
       // Sección de Pagos de Créditos
       if (reportSections.payments) {
         const payRes = await supabase
-          .from('credit_payments')
+          .from('payments')
           .select(`
             *,
-            customer:customers(name, phone),
-            allocations
+            customer:customers(name, phone)
           `)
           .gte('created_at', start)
           .lte('created_at', end)
@@ -275,8 +274,21 @@ export default function DashboardPage() {
         // Crear filas con detalles de cada nota pagada
         const paymentsData: any[] = [];
         payments.forEach((p: any) => {
-          if (p.allocations && p.allocations.length > 0) {
-            p.allocations.forEach((alloc: any, index: number) => {
+          // Intentar parsear las asignaciones del campo notes
+          let allocations: any[] = [];
+          try {
+            if (p.notes && typeof p.notes === 'string') {
+              const parsed = JSON.parse(p.notes);
+              allocations = parsed.allocations || [];
+            } else if (p.notes && typeof p.notes === 'object' && p.notes.allocations) {
+              allocations = p.notes.allocations;
+            }
+          } catch (e) {
+            // Notes no es JSON válido, es solo texto
+          }
+          
+          if (allocations.length > 0) {
+            allocations.forEach((alloc: any, index: number) => {
               paymentsData.push({
                 'Fecha Pago': new Date(p.created_at).toLocaleDateString('es-MX'),
                 'Hora Pago': new Date(p.created_at).toLocaleTimeString('es-MX'),
@@ -285,12 +297,12 @@ export default function DashboardPage() {
                 'Monto Total Pagado': index === 0 ? p.amount : '',
                 'Método': index === 0 ? (p.method || 'Efectivo') : '',
                 'Semana Abonada': alloc.week || '-',
-                'Monto a Nota': alloc.amount || 0,
-                'Notas': p.notes || '-',
+                'Monto a Nota': alloc.paid || alloc.amount || 0,
+                'Notas Adicionales': typeof p.notes === 'string' && !p.notes.startsWith('{') ? p.notes : '-',
               });
             });
           } else {
-            // Pago sin asignaciones
+            // Pago sin asignaciones detalladas
             paymentsData.push({
               'Fecha Pago': new Date(p.created_at).toLocaleDateString('es-MX'),
               'Hora Pago': new Date(p.created_at).toLocaleTimeString('es-MX'),
@@ -299,8 +311,8 @@ export default function DashboardPage() {
               'Monto Total Pagado': p.amount,
               'Método': p.method || 'Efectivo',
               'Semana Abonada': '-',
-              'Monto a Nota': 0,
-              'Notas': p.notes || '-',
+              'Monto a Nota': p.amount,
+              'Notas Adicionales': typeof p.notes === 'string' ? p.notes : '-',
             });
           }
         });
@@ -316,7 +328,7 @@ export default function DashboardPage() {
           { wch: 15 }, // Método
           { wch: 20 }, // Semana Abonada
           { wch: 15 }, // Monto a Nota
-          { wch: 30 }, // Notas
+          { wch: 30 }, // Notas Adicionales
         ];
         
         ws['!autofilter'] = { ref: `A1:I${paymentsData.length + 1}` };
