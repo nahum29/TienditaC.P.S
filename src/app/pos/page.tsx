@@ -236,8 +236,10 @@ export default function POSPage() {
         y += 6;
       }
 
-      doc.setFontSize(8);
-      doc.text('DLP por su compra!', 40, y + 6, { align: 'center' });
+      doc.setFontSize(9);
+      doc.text('DLP', 40, y + 6, { align: 'center' });
+      doc.setFontSize(7);
+      doc.text('Dios le pague', 40, y + 11, { align: 'center' });
 
       const blob = doc.output('blob');
       const url = URL.createObjectURL(blob);

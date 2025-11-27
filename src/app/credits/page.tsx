@@ -436,8 +436,7 @@ export default function CreditsPage() {
 
               {/* Footer */}
               <div className="text-center mt-6 pt-4 border-t-2 border-gray-800 border-dashed text-sm text-gray-800">
-                <p className="font-semibold">¡Gracias por su preferencia!</p>
-                <p className="mt-1 font-semibold">DLP</p>
+                <p className="text-xs mt-1">Dios le pague</p>
               </div>
             </div>
 
