@@ -91,39 +91,85 @@ export default function DashboardPage() {
       // Crear un nuevo libro de trabajo (workbook)
       const wb = XLSX.utils.book_new();
 
-      // Sección de Ventas
+      // Sección de Ventas con productos
       if (reportSections.sales) {
-        const salesRes = await supabase.from('sales').select('*').gte('created_at', start).lte('created_at', end).order('created_at', { ascending: true });
+        const salesRes = await supabase
+          .from('sales')
+          .select(`
+            *,
+            customer:customers(name),
+            sale_items(
+              quantity,
+              unit_price,
+              total_price,
+              product:products(name, sku)
+            )
+          `)
+          .gte('created_at', start)
+          .lte('created_at', end)
+          .order('created_at', { ascending: true });
         if (salesRes.error) throw salesRes.error;
         const sales = salesRes.data || [];
         
-        const salesData = sales.map((s: any) => ({
-          'Fecha': new Date(s.created_at).toLocaleString('es-MX'),
-          'ID Venta': s.id,
-          'Total': s.total_amount,
-          'Costo': s.total_cost || 0,
-          'Ganancia': s.total_amount - (s.total_cost || 0),
-          'Estado': s.status === 'paid' ? 'Pagado' : 'Crédito',
-          'Cliente ID': s.customer_id || '-',
-        }));
+        // Crear filas detalladas con cada producto
+        const salesData: any[] = [];
+        sales.forEach((s: any) => {
+          if (s.sale_items && s.sale_items.length > 0) {
+            s.sale_items.forEach((item: any, index: number) => {
+              salesData.push({
+                'Fecha': new Date(s.created_at).toLocaleDateString('es-MX'),
+                'Hora': new Date(s.created_at).toLocaleTimeString('es-MX'),
+                'Cliente': s.customer?.name || 'Venta directa',
+                'Producto': item.product?.name || '-',
+                'SKU': item.product?.sku || '-',
+                'Cantidad': item.quantity,
+                'Precio Unitario': item.unit_price,
+                'Subtotal': item.total_price,
+                'Total Venta': index === 0 ? s.total_amount : '',
+                'Costo Total': index === 0 ? (s.total_cost || 0) : '',
+                'Ganancia': index === 0 ? (s.total_amount - (s.total_cost || 0)) : '',
+                'Estado': index === 0 ? (s.status === 'paid' ? 'Pagado' : 'Crédito') : '',
+              });
+            });
+          } else {
+            // Venta sin items
+            salesData.push({
+              'Fecha': new Date(s.created_at).toLocaleDateString('es-MX'),
+              'Hora': new Date(s.created_at).toLocaleTimeString('es-MX'),
+              'Cliente': s.customer?.name || 'Venta directa',
+              'Producto': '-',
+              'SKU': '-',
+              'Cantidad': 0,
+              'Precio Unitario': 0,
+              'Subtotal': 0,
+              'Total Venta': s.total_amount,
+              'Costo Total': s.total_cost || 0,
+              'Ganancia': s.total_amount - (s.total_cost || 0),
+              'Estado': s.status === 'paid' ? 'Pagado' : 'Crédito',
+            });
+          }
+        });
         
         const ws = XLSX.utils.json_to_sheet(salesData);
         
-        // Configurar anchos de columna
         ws['!cols'] = [
-          { wch: 20 }, // Fecha
-          { wch: 12 }, // ID
-          { wch: 12 }, // Total
-          { wch: 12 }, // Costo
+          { wch: 12 }, // Fecha
+          { wch: 12 }, // Hora
+          { wch: 25 }, // Cliente
+          { wch: 30 }, // Producto
+          { wch: 15 }, // SKU
+          { wch: 10 }, // Cantidad
+          { wch: 15 }, // Precio Unitario
+          { wch: 12 }, // Subtotal
+          { wch: 12 }, // Total Venta
+          { wch: 12 }, // Costo Total
           { wch: 12 }, // Ganancia
           { wch: 12 }, // Estado
-          { wch: 15 }, // Cliente ID
         ];
         
-        // Agregar autofiltro
-        ws['!autofilter'] = { ref: `A1:G${salesData.length + 1}` };
+        ws['!autofilter'] = { ref: `A1:L${salesData.length + 1}` };
         
-        XLSX.utils.book_append_sheet(wb, ws, 'Ventas');
+        XLSX.utils.book_append_sheet(wb, ws, 'Ventas Detalladas');
       }
 
       // Sección de Inventario
@@ -132,33 +178,48 @@ export default function DashboardPage() {
         if (prodRes.error) throw prodRes.error;
         const products = prodRes.data || [];
         
-        const productsData = products.map((p: any) => ({
-          'Nombre': p.name,
-          'SKU': p.sku || '-',
-          'Stock': p.is_bulk ? `${(p.stock/1000).toFixed(2)} kg` : p.stock,
-          'Stock Numérico': p.is_bulk ? (p.stock/1000) : p.stock,
-          'Precio': p.price || 0,
-          'Costo': p.cost || 0,
-          'A Granel': p.is_bulk ? 'Sí' : 'No',
-          'Umbral Bajo Stock': p.low_stock_threshold || 5,
-          'Estado': p.stock <= (p.low_stock_threshold || 5) ? '⚠️ Bajo' : '✓ Normal',
-        }));
+        const productsData = products.map((p: any) => {
+          const stockDisplay = p.is_bulk ? `${(p.stock/1000).toFixed(3)} kg` : p.stock;
+          const stockNumerico = p.is_bulk ? (p.stock/1000) : p.stock;
+          const margen = p.price && p.cost ? ((p.price - p.cost) / p.price * 100).toFixed(1) : 0;
+          const valorInventario = stockNumerico * (p.cost || 0);
+          
+          return {
+            'Nombre': p.name,
+            'SKU': p.sku || '-',
+            'Código de Barras': p.barcode || '-',
+            'Stock Actual': stockDisplay,
+            'Stock Numérico': stockNumerico,
+            'Tipo': p.is_bulk ? 'A Granel (kg)' : 'Por Unidad',
+            'Precio Venta': p.price || 0,
+            'Costo': p.cost || 0,
+            'Margen %': margen,
+            'Valor Inventario': valorInventario.toFixed(2),
+            'Umbral Mínimo': p.low_stock_threshold || 5,
+            'Estado Stock': stockNumerico <= (p.low_stock_threshold || 5) ? 'BAJO' : 'Normal',
+            'Fecha Registro': p.created_at ? new Date(p.created_at).toLocaleDateString('es-MX') : '-',
+          };
+        });
         
         const ws = XLSX.utils.json_to_sheet(productsData);
         
         ws['!cols'] = [
           { wch: 30 }, // Nombre
           { wch: 15 }, // SKU
-          { wch: 15 }, // Stock
+          { wch: 18 }, // Código de Barras
+          { wch: 15 }, // Stock Actual
           { wch: 15 }, // Stock Numérico
-          { wch: 12 }, // Precio
+          { wch: 18 }, // Tipo
+          { wch: 12 }, // Precio Venta
           { wch: 12 }, // Costo
-          { wch: 12 }, // A Granel
-          { wch: 18 }, // Umbral
-          { wch: 12 }, // Estado
+          { wch: 10 }, // Margen %
+          { wch: 18 }, // Valor Inventario
+          { wch: 15 }, // Umbral Mínimo
+          { wch: 15 }, // Estado Stock
+          { wch: 15 }, // Fecha Registro
         ];
         
-        ws['!autofilter'] = { ref: `A1:I${productsData.length + 1}` };
+        ws['!autofilter'] = { ref: `A1:M${productsData.length + 1}` };
         
         XLSX.utils.book_append_sheet(wb, ws, 'Inventario');
       }
@@ -171,54 +232,96 @@ export default function DashboardPage() {
         
         const customersData = customers.map((c: any) => ({
           'Nombre': c.name,
-          'Email': c.email || '-',
           'Teléfono': c.phone || '-',
-          'Balance': c.balance || 0,
-          'Estado': c.balance > 0 ? '⚠️ Con Deuda' : '✓ Al Corriente',
+          'Email': c.email || '-',
+          'Dirección': c.address || '-',
+          'Balance Pendiente': c.balance || 0,
+          'Fecha Registro': c.created_at ? new Date(c.created_at).toLocaleDateString('es-MX') : '-',
+          'Estado': c.balance > 0 ? 'Con Deuda' : 'Al Corriente',
         }));
         
         const ws = XLSX.utils.json_to_sheet(customersData);
         
         ws['!cols'] = [
           { wch: 25 }, // Nombre
-          { wch: 25 }, // Email
           { wch: 15 }, // Teléfono
-          { wch: 12 }, // Balance
-          { wch: 18 }, // Estado
+          { wch: 25 }, // Email
+          { wch: 30 }, // Dirección
+          { wch: 15 }, // Balance
+          { wch: 15 }, // Fecha Registro
+          { wch: 15 }, // Estado
         ];
         
-        ws['!autofilter'] = { ref: `A1:E${customersData.length + 1}` };
+        ws['!autofilter'] = { ref: `A1:G${customersData.length + 1}` };
         
         XLSX.utils.book_append_sheet(wb, ws, 'Clientes');
       }
 
-      // Sección de Pagos
+      // Sección de Pagos de Créditos
       if (reportSections.payments) {
-        const payRes = await supabase.from('payments').select('*').gte('created_at', start).lte('created_at', end).order('created_at', { ascending: true });
+        const payRes = await supabase
+          .from('credit_payments')
+          .select(`
+            *,
+            customer:customers(name, phone),
+            allocations
+          `)
+          .gte('created_at', start)
+          .lte('created_at', end)
+          .order('created_at', { ascending: true });
         if (payRes.error) throw payRes.error;
         const payments = payRes.data || [];
         
-        const paymentsData = payments.map((p: any) => ({
-          'Fecha': new Date(p.created_at).toLocaleString('es-MX'),
-          'Monto': p.amount || 0,
-          'Método': p.method,
-          'Cliente ID': p.customer_id || '-',
-          'Venta ID': p.sale_id || '-',
-        }));
+        // Crear filas con detalles de cada nota pagada
+        const paymentsData: any[] = [];
+        payments.forEach((p: any) => {
+          if (p.allocations && p.allocations.length > 0) {
+            p.allocations.forEach((alloc: any, index: number) => {
+              paymentsData.push({
+                'Fecha Pago': new Date(p.created_at).toLocaleDateString('es-MX'),
+                'Hora Pago': new Date(p.created_at).toLocaleTimeString('es-MX'),
+                'Cliente': p.customer?.name || '-',
+                'Teléfono': p.customer?.phone || '-',
+                'Monto Total Pagado': index === 0 ? p.amount : '',
+                'Método': index === 0 ? (p.method || 'Efectivo') : '',
+                'Semana Abonada': alloc.week || '-',
+                'Monto a Nota': alloc.amount || 0,
+                'Notas': p.notes || '-',
+              });
+            });
+          } else {
+            // Pago sin asignaciones
+            paymentsData.push({
+              'Fecha Pago': new Date(p.created_at).toLocaleDateString('es-MX'),
+              'Hora Pago': new Date(p.created_at).toLocaleTimeString('es-MX'),
+              'Cliente': p.customer?.name || '-',
+              'Teléfono': p.customer?.phone || '-',
+              'Monto Total Pagado': p.amount,
+              'Método': p.method || 'Efectivo',
+              'Semana Abonada': '-',
+              'Monto a Nota': 0,
+              'Notas': p.notes || '-',
+            });
+          }
+        });
         
         const ws = XLSX.utils.json_to_sheet(paymentsData);
         
         ws['!cols'] = [
-          { wch: 20 }, // Fecha
-          { wch: 12 }, // Monto
+          { wch: 12 }, // Fecha Pago
+          { wch: 12 }, // Hora Pago
+          { wch: 25 }, // Cliente
+          { wch: 15 }, // Teléfono
+          { wch: 18 }, // Monto Total Pagado
           { wch: 15 }, // Método
-          { wch: 15 }, // Cliente ID
-          { wch: 15 }, // Venta ID
+          { wch: 20 }, // Semana Abonada
+          { wch: 15 }, // Monto a Nota
+          { wch: 30 }, // Notas
         ];
         
-        ws['!autofilter'] = { ref: `A1:E${paymentsData.length + 1}` };
+        ws['!autofilter'] = { ref: `A1:I${paymentsData.length + 1}` };
         
-        XLSX.utils.book_append_sheet(wb, ws, 'Pagos');
+        XLSX.utils.book_append_sheet(wb, ws, 'Pagos de Créditos');
       }
 
       // Generar y descargar el archivo Excel
