@@ -25,6 +25,7 @@ interface CreditDetail extends Credit {
 
 interface SaleItemDetail extends SaleItem {
   product?: Product;
+  sale?: Sale;
 }
 
 export default function CreditsPage() {
@@ -172,6 +173,19 @@ export default function CreditsPage() {
       // Obtener los sale_ids
       const saleIds = creditSales.map((cs: any) => cs.sale_id);
 
+      // Obtener todas las ventas para tener las fechas
+      const { data: sales, error: salesError } = await supabase
+        .from('sales')
+        .select('*')
+        .in('id', saleIds);
+
+      if (salesError) throw salesError;
+
+      // Crear un mapa de ventas por ID
+      const salesMap = new Map(
+        (sales || []).map((sale: Sale) => [sale.id, sale])
+      );
+
       // Obtener todos los items de todas las ventas
       const { data: items, error: itemsError } = await supabase
         .from('sale_items')
@@ -180,7 +194,7 @@ export default function CreditsPage() {
 
       if (itemsError) throw itemsError;
 
-      // Enriquecer con información del producto
+      // Enriquecer con información del producto y la venta
       const enrichedItems = await Promise.all(
         (items || []).map(async (item: SaleItemDetail) => {
           const { data: product } = await supabase
@@ -192,9 +206,17 @@ export default function CreditsPage() {
           return {
             ...item,
             product: product || undefined,
+            sale: salesMap.get(item.sale_id),
           };
         })
       );
+
+      // Ordenar items por fecha de venta (más reciente primero)
+      enrichedItems.sort((a, b) => {
+        const dateA = a.sale?.created_at ? new Date(a.sale.created_at).getTime() : 0;
+        const dateB = b.sale?.created_at ? new Date(b.sale.created_at).getTime() : 0;
+        return dateA - dateB;
+      });
 
       setSaleItems(enrichedItems);
       toast.dismiss();
@@ -355,26 +377,43 @@ export default function CreditsPage() {
 
               {/* Items */}
               <div className="border-t-2 border-gray-800 border-dashed pt-3 mb-4">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b-2 border-gray-700">
-                      <th className="text-left py-2 font-bold text-gray-900">Producto</th>
-                      <th className="text-center py-2 font-bold text-gray-900">Cant</th>
-                      <th className="text-right py-2 font-bold text-gray-900">Precio</th>
-                      <th className="text-right py-2 font-bold text-gray-900">Total</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {saleItems.map((item) => (
-                      <tr key={item.id} className="border-b border-gray-400">
-                        <td className="py-2 pr-2 text-gray-900">{item.product?.name || 'Producto'}</td>
-                        <td className="text-center text-gray-900">{item.quantity}</td>
-                        <td className="text-right text-gray-900">${item.unit_price.toFixed(2)}</td>
-                        <td className="text-right font-bold text-gray-900">${item.total_price.toFixed(2)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                <div className="space-y-3">
+                  {saleItems.map((item, index) => {
+                    // Agrupar por fecha/hora de venta - mostrar encabezado cuando cambia
+                    const showDateHeader = index === 0 || 
+                      (item.sale?.created_at !== saleItems[index - 1]?.sale?.created_at);
+                    
+                    return (
+                      <div key={item.id}>
+                        {showDateHeader && item.sale?.created_at && (
+                          <div className="bg-gray-100 px-2 py-1 rounded mt-2 mb-1">
+                            <p className="text-xs font-bold text-gray-700">
+                              📅 {new Date(item.sale.created_at).toLocaleDateString('es-MX', { 
+                                weekday: 'short', 
+                                day: '2-digit', 
+                                month: 'short' 
+                              })} - {new Date(item.sale.created_at).toLocaleTimeString('es-MX', { 
+                                hour: '2-digit', 
+                                minute: '2-digit' 
+                              })}
+                            </p>
+                          </div>
+                        )}
+                        <div className="flex justify-between items-start text-xs border-b border-gray-300 pb-2">
+                          <div className="flex-1">
+                            <p className="font-bold text-gray-900">{item.product?.name || 'Producto'}</p>
+                            <p className="text-gray-700">
+                              {item.quantity} x ${item.unit_price.toFixed(2)}
+                            </p>
+                          </div>
+                          <div className="text-right font-bold text-gray-900">
+                            ${item.total_price.toFixed(2)}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
 
               {/* Totales */}
@@ -397,7 +436,8 @@ export default function CreditsPage() {
 
               {/* Footer */}
               <div className="text-center mt-6 pt-4 border-t-2 border-gray-800 border-dashed text-sm text-gray-800">
-                <p className="font-semibold">¡DLP por su preferencia!</p>
+                <p className="font-semibold">¡Gracias por su preferencia!</p>
+                <p className="mt-1 font-semibold">DLP</p>
               </div>
             </div>
 
