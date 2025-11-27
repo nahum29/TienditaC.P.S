@@ -601,91 +601,95 @@ export default function CreditsPage() {
                 setSaleItems([]);
               }}
               title="Nota de Crédito"
-              className="max-w-md"
+              className="max-w-md max-h-[90vh] flex flex-col"
             >
-            <div className="bg-white p-6 font-mono text-sm text-gray-900">
-              {/* Header */}
-              <div className="text-center mb-4 border-b-2 border-gray-800 border-dashed pb-4">
-                <h2 className="text-2xl font-bold text-gray-900">Tiendita C.P.S</h2>
-                <p className="text-sm text-gray-700 mt-1 font-semibold">Nota de Crédito</p>
-              </div>
-
-              {/* Cliente Info */}
-              {selectedCredit && (
-                <div className="mb-4 space-y-1 text-sm text-gray-900">
-                  <p><span className="font-bold">Cliente:</span> {selectedCredit.customer?.name || '-'}</p>
-                  <p><span className="font-bold">Semana:</span> {selectedCredit.week_start ? formatWeekRange(new Date(selectedCredit.week_start)) : '-'}</p>
-                  <p><span className="font-bold">Fecha límite:</span> {selectedCredit.due_date ? new Date(selectedCredit.due_date).toLocaleDateString('es-MX') : '-'}</p>
-                  <p><span className="font-bold">ID Nota:</span> {selectedCredit.id?.slice(0, 8) || '-'}</p>
+            {/* Contenido con scroll */}
+            <div className="overflow-y-auto flex-1 px-6 py-4 max-h-[calc(90vh-180px)]">
+              <div className="bg-white font-mono text-sm text-gray-900">
+                {/* Header */}
+                <div className="text-center mb-4 border-b-2 border-gray-800 border-dashed pb-4">
+                  <h2 className="text-2xl font-bold text-gray-900">Tiendita C.P.S</h2>
+                  <p className="text-sm text-gray-700 mt-1 font-semibold">Nota de Crédito</p>
                 </div>
-              )}
 
-              {/* Items */}
-              <div className="border-t-2 border-gray-800 border-dashed pt-3 mb-4">
-                <div className="space-y-3">
-                  {saleItems.map((item, index) => {
-                    // Agrupar por fecha/hora de venta - mostrar encabezado cuando cambia
-                    const showDateHeader = index === 0 || 
-                      (item.sale?.created_at !== saleItems[index - 1]?.sale?.created_at);
-                    
-                    return (
-                      <div key={item.id}>
-                        {showDateHeader && item.sale?.created_at && (
-                          <div className="bg-gray-100 px-2 py-1 rounded mt-2 mb-1">
-                            <p className="text-xs font-bold text-gray-700">
-                              📅 {new Date(item.sale.created_at).toLocaleDateString('es-MX', { 
-                                weekday: 'short', 
-                                day: '2-digit', 
-                                month: 'short' 
-                              })} - {new Date(item.sale.created_at).toLocaleTimeString('es-MX', { 
-                                hour: '2-digit', 
-                                minute: '2-digit' 
-                              })}
-                            </p>
-                          </div>
-                        )}
-                        <div className="flex justify-between items-start text-xs border-b border-gray-300 pb-2">
-                          <div className="flex-1">
-                            <p className="font-bold text-gray-900">{item.product?.name || 'Producto'}</p>
-                            <p className="text-gray-700">
-                              {item.quantity} x ${item.unit_price.toFixed(2)}
-                            </p>
-                          </div>
-                          <div className="text-right font-bold text-gray-900">
-                            ${item.total_price.toFixed(2)}
+                {/* Cliente Info */}
+                {selectedCredit && (
+                  <div className="mb-4 space-y-1 text-sm text-gray-900">
+                    <p><span className="font-bold">Cliente:</span> {selectedCredit.customer?.name || '-'}</p>
+                    <p><span className="font-bold">Semana:</span> {selectedCredit.week_start ? formatWeekRange(new Date(selectedCredit.week_start)) : '-'}</p>
+                    <p><span className="font-bold">Fecha límite:</span> {selectedCredit.due_date ? new Date(selectedCredit.due_date).toLocaleDateString('es-MX') : '-'}</p>
+                    <p><span className="font-bold">ID Nota:</span> {selectedCredit.id?.slice(0, 8) || '-'}</p>
+                  </div>
+                )}
+
+                {/* Items */}
+                <div className="border-t-2 border-gray-800 border-dashed pt-3 mb-4">
+                  <div className="space-y-3">
+                    {saleItems.map((item, index) => {
+                      // Agrupar por fecha/hora de venta - mostrar encabezado cuando cambia
+                      const showDateHeader = index === 0 || 
+                        (item.sale?.created_at !== saleItems[index - 1]?.sale?.created_at);
+                      
+                      return (
+                        <div key={item.id}>
+                          {showDateHeader && item.sale?.created_at && (
+                            <div className="bg-gray-100 px-2 py-1 rounded mt-2 mb-1">
+                              <p className="text-xs font-bold text-gray-700">
+                                📅 {new Date(item.sale.created_at).toLocaleDateString('es-MX', { 
+                                  weekday: 'short', 
+                                  day: '2-digit', 
+                                  month: 'short' 
+                                })} - {new Date(item.sale.created_at).toLocaleTimeString('es-MX', { 
+                                  hour: '2-digit', 
+                                  minute: '2-digit' 
+                                })}
+                              </p>
+                            </div>
+                          )}
+                          <div className="flex justify-between items-start text-xs border-b border-gray-300 pb-2">
+                            <div className="flex-1">
+                              <p className="font-bold text-gray-900">{item.product?.name || 'Producto'}</p>
+                              <p className="text-gray-700">
+                                {item.quantity} x ${item.unit_price.toFixed(2)}
+                              </p>
+                            </div>
+                            <div className="text-right font-bold text-gray-900">
+                              ${item.total_price.toFixed(2)}
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Totales */}
-              {selectedCredit && (
-                <div className="border-t-2 border-gray-800 border-dashed pt-4 space-y-2 text-base">
-                  <div className="flex justify-between text-gray-900">
-                    <span className="font-bold">Total:</span>
-                    <span className="font-bold text-xl">${selectedCredit.total_amount.toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between text-red-700">
-                    <span className="font-bold">Pendiente:</span>
-                    <span className="font-bold text-xl">${selectedCredit.outstanding_amount.toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between text-green-700">
-                    <span className="font-bold">Pagado:</span>
-                    <span className="font-bold text-lg">${(selectedCredit.total_amount - selectedCredit.outstanding_amount).toFixed(2)}</span>
+                      );
+                    })}
                   </div>
                 </div>
-              )}
 
-              {/* Footer */}
-              <div className="text-center mt-6 pt-4 border-t-2 border-gray-800 border-dashed text-sm text-gray-800">
-                <p className="text-xs mt-1">Dios le pague</p>
+                {/* Totales */}
+                {selectedCredit && (
+                  <div className="border-t-2 border-gray-800 border-dashed pt-4 space-y-2 text-base">
+                    <div className="flex justify-between text-gray-900">
+                      <span className="font-bold">Total:</span>
+                      <span className="font-bold text-xl">${selectedCredit.total_amount.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between text-red-700">
+                      <span className="font-bold">Pendiente:</span>
+                      <span className="font-bold text-xl">${selectedCredit.outstanding_amount.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between text-green-700">
+                      <span className="font-bold">Pagado:</span>
+                      <span className="font-bold text-lg">${(selectedCredit.total_amount - selectedCredit.outstanding_amount).toFixed(2)}</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Footer */}
+                <div className="text-center mt-6 pt-4 border-t-2 border-gray-800 border-dashed text-sm text-gray-800">
+                  <p className="text-xs mt-1">Dios le pague</p>
+                </div>
               </div>
             </div>
 
-            <div className="mt-4 flex justify-end gap-2">
+            {/* Botones fijos en la parte inferior */}
+            <div className="border-t bg-white px-6 py-4 flex justify-end gap-2">
               <Button
                 onClick={() => {
                   setShowTicketModal(false);
@@ -721,8 +725,9 @@ export default function CreditsPage() {
                 selectedCustomers: new Set()
               });
             }}
+            className="max-w-2xl"
           >
-            <div className="space-y-4">
+            <div className="p-6 space-y-4">
               {/* Filtros de Estado */}
               <div className="border-b pb-4">
                 <h3 className="font-semibold mb-2 text-gray-700">Estado de los Créditos</h3>
