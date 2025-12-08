@@ -1,39 +1,54 @@
 -- Clean and seed minimal data for Tiendita C.P.S
 -- IMPORTANT: Run this in Supabase SQL editor as a project ADMIN (service role).
--- This script truncates app tables and inserts a default operator profile required by the app.
+-- This script truncates ALL app tables and prepares the database for production use.
 -- 
--- ⚠️ WARNING: This will DELETE ALL DATA from your database!
--- Make sure to backup your data before running this script.
+-- ⚠️ ADVERTENCIA CRÍTICA: Esto BORRARÁ TODOS LOS DATOS de prueba de la base de datos!
+-- Ejecutar solo cuando estés listo para iniciar con datos de producción reales.
+-- NO HAY FORMA DE RECUPERAR LOS DATOS después de ejecutar este script.
 
 BEGIN;
 
--- Truncate app tables in correct order to respect foreign key constraints.
--- Tables with dependencies must be truncated first (child tables before parent tables).
+-- Truncate ALL app tables in correct order to respect foreign key constraints.
+-- Order is critical: child tables (with foreign keys) must be truncated before parent tables.
 TRUNCATE TABLE
-  public.credit_sales,      -- Junction table: credits + sales (added for weekly credit system)
-  public.sale_items,        -- Depends on: sales, products
-  public.payments,          -- Depends on: sales, customers
-  public.credits,           -- Depends on: customers, sales (optional)
-  public.sales,             -- Depends on: customers (optional), profiles
-  public.products,          -- Depends on: categories (optional)
-  public.customers,         -- Independent table
-  public.categories,        -- Independent table
-  public.profiles           -- Independent table (used for operator tracking)
+  public.credit_sales,      -- Junction table: many-to-many between credits and sales
+  public.sale_items,        -- Items in each sale (depends on: sales, products)
+  public.payments,          -- Payment records (depends on: sales, customers)
+  public.credits,           -- Credit accounts per customer per week (depends on: customers, sales)
+  public.sales,             -- All sales (depends on: customers, profiles)
+  public.products,          -- Product catalog (depends on: categories)
+  public.customers,         -- Customer directory
+  public.categories,        -- Product categories
+  public.profiles           -- User/operator profiles (EXCEPT the system operator)
 RESTART IDENTITY CASCADE;
 
--- Recreate the single-operator profile expected by the app.
--- Make sure this ID matches `OPERATOR_ID` in `src/lib/supabase/client.ts`
+-- Recreate the single-operator profile required by the app to function.
+-- This ID must match `OPERATOR_ID` in `src/lib/supabase/client.ts`
 INSERT INTO public.profiles (id, full_name, role, created_at)
 VALUES ('00000000-0000-0000-0000-000000000000', 'Operador', 'operator', NOW())
 ON CONFLICT (id) DO UPDATE SET full_name = EXCLUDED.full_name, role = EXCLUDED.role;
 
 COMMIT;
 
--- Notes:
--- - Run in the Supabase SQL editor as an admin (or from psql as a DB owner).
--- - This removes ALL DATA from the listed app tables. Backup first if you need to keep records.
--- - Tables are truncated in dependency order: child tables first, then parent tables.
--- - RESTART IDENTITY resets auto-incrementing sequences to start from 1.
--- - CASCADE ensures all dependent rows are also removed.
--- - The operator profile with ID '00000000-0000-0000-0000-000000000000' is required for the app to function.
--- - After running this, you'll have a clean database ready for production or new test data.
+-- ============================================================================
+-- RESULTADO DESPUÉS DE EJECUTAR ESTE SCRIPT:
+-- ============================================================================
+-- ✓ Todos los datos de prueba eliminados
+-- ✓ Perfil de operador del sistema restaurado
+-- ✓ Base de datos lista para datos de producción
+-- ✓ Contadores de ID reiniciados a 1
+--
+-- PRÓXIMOS PASOS:
+-- 1. Verificar que el script se ejecutó sin errores
+-- 2. Crear categorías de productos reales
+-- 3. Agregar productos del inventario real
+-- 4. Registrar clientes reales
+-- 5. Comenzar a usar el sistema en producción
+--
+-- NOTAS TÉCNICAS:
+-- - TRUNCATE elimina todos los datos pero mantiene la estructura de las tablas
+-- - RESTART IDENTITY reinicia los contadores automáticos a 1
+-- - CASCADE elimina automáticamente filas dependientes
+-- - La transacción (BEGIN/COMMIT) asegura que todo se ejecute o nada
+-- - Si algo falla, ejecutar: ROLLBACK;
+-- ============================================================================
