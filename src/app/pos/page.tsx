@@ -687,6 +687,10 @@ export default function POSPage() {
                   ref={(el) => { ticketIframeRef.current = el; }}
                   src={ticketPreviewUrl}
                   style={{ width: '100%', height: '400px', border: 'none' }}
+                  onLoad={() => {
+                    // Asegurar que el iframe esté completamente cargado
+                    console.log('Iframe del ticket cargado');
+                  }}
                 />
               ) : (
                 <p>No hay vista previa disponible.</p>
@@ -696,25 +700,29 @@ export default function POSPage() {
                 <Button
                   onClick={() => {
                     try {
-                      const iframe = ticketIframeRef.current;
-                      if (iframe && iframe.contentWindow) {
-                        iframe.contentWindow.focus();
-                        iframe.contentWindow.print();
-                      } else if (ticketPreviewUrl) {
-                        // fallback: open in new tab and call print there
-                        const w = window.open(ticketPreviewUrl, '_blank');
-                        if (w) w.print();
+                      if (ticketBlob) {
+                        // Método más confiable: abrir en nueva ventana y llamar print
+                        const url = URL.createObjectURL(ticketBlob);
+                        const printWindow = window.open(url, '_blank');
+                        if (printWindow) {
+                          printWindow.onload = () => {
+                            setTimeout(() => {
+                              printWindow.print();
+                              // No cerrar la ventana automáticamente para que el usuario pueda reimprimir
+                            }, 250);
+                          };
+                        } else {
+                          toast.error('No se pudo abrir ventana de impresión. Verifique el bloqueador de ventanas emergentes.');
+                        }
+                      } else {
+                        toast.error('No hay ticket para imprimir');
                       }
                     } catch (e) {
-                      console.warn('Imprimir falló', e);
+                      console.error('Error al imprimir', e);
+                      toast.error('Error al imprimir el ticket');
                     }
-                    // close modal after printing
+                    // Cerrar modal después de iniciar impresión
                     setShowTicketPreview(false);
-                    if (ticketPreviewUrl) {
-                      URL.revokeObjectURL(ticketPreviewUrl);
-                      setTicketPreviewUrl(null);
-                      setTicketBlob(null);
-                    }
                   }}
                   className="flex-1"
                 >
