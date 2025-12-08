@@ -80,7 +80,7 @@ export default function POSPage() {
       window.removeEventListener('keydown', handleKeyDown);
       if (barcodeTimeoutRef.current) clearTimeout(barcodeTimeoutRef.current);
     };
-  }, [products]);
+  }, [products]); // cart ya no es necesario con la forma funcional de setState
 
   const fetchData = async () => {
     try {
@@ -144,37 +144,37 @@ export default function POSPage() {
       return;
     }
 
-    const existing = cart.find((item) => item.product.id === product.id && !item.isBulk);
-    if (existing) {
-      if (existing.quantity >= product.stock) {
-        toast.error('Stock insuficiente');
-        return;
-      }
-      setCart(
-        cart.map((item) =>
+    setCart((prevCart) => {
+      const existing = prevCart.find((item) => item.product.id === product.id && !item.isBulk);
+      if (existing) {
+        if (existing.quantity >= product.stock) {
+          toast.error('Stock insuficiente');
+          return prevCart;
+        }
+        return prevCart.map((item) =>
           item.product.id === product.id && !item.isBulk ? { ...item, quantity: item.quantity + 1 } : item
-        )
-      );
-    } else {
-      setCart([...cart, { product, quantity: 1, unitPrice: product.price, isBulk: false }]);
-    }
+        );
+      } else {
+        return [...prevCart, { product, quantity: 1, unitPrice: product.price, isBulk: false }];
+      }
+    });
     toast.success('Agregado al carrito');
   };
 
   const updateQuantity = (productId: string, quantity: number) => {
-    if (quantity <= 0) {
-      setCart(cart.filter((item) => item.product.id !== productId));
-    } else {
-      setCart(
-        cart.map((item) =>
+    setCart((prevCart) => {
+      if (quantity <= 0) {
+        return prevCart.filter((item) => item.product.id !== productId);
+      } else {
+        return prevCart.map((item) =>
           item.product.id === productId ? { ...item, quantity } : item
-        )
-      );
-    }
+        );
+      }
+    });
   };
 
   const removeFromCart = (productId: string) => {
-    setCart(cart.filter((item) => item.product.id !== productId));
+    setCart((prevCart) => prevCart.filter((item) => item.product.id !== productId));
   };
 
   const total = cart.reduce((sum, item) => sum + (item.unitPrice || item.product.price) * item.quantity, 0);
@@ -802,8 +802,8 @@ export default function POSPage() {
                     const unitPricePerGram = bulkProduct.price / 1000; // price per gram
 
                     // add to cart as bulk item: quantity in grams
-                    setCart([
-                      ...cart,
+                    setCart((prevCart) => [
+                      ...prevCart,
                       { product: bulkProduct, quantity: grams, unitPrice: unitPricePerGram, isBulk: true },
                     ]);
                     setShowBulkModal(false);
