@@ -134,7 +134,7 @@ export default function POSPage() {
       return;
     }
 
-    const isBulk = !!product.sku && product.sku.startsWith('BULK-');
+    const isBulk = !!product.is_bulk;
     if (isBulk) {
       // open modal to ask for grams or price
       setBulkProduct(product);

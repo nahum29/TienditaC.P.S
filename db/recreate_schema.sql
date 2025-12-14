@@ -48,7 +48,8 @@ CREATE TABLE public.products (
   stock integer NOT NULL DEFAULT 0, -- For bulk: stored in grams; for units: integer count
   low_stock_threshold integer NULL,
   category_id uuid REFERENCES public.categories(id) ON DELETE SET NULL,
-  is_bulk boolean NOT NULL DEFAULT false,
+  is_bulk boolean NOT NULL DEFAULT false, -- TRUE = producto a granel (peso), FALSE = por unidad
+  barcode text NULL, -- Código de barras real del producto (opcional)
   active boolean NOT NULL DEFAULT true,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
@@ -56,6 +57,7 @@ CREATE TABLE public.products (
 
 CREATE INDEX IF NOT EXISTS idx_products_sku ON public.products(sku);
 CREATE INDEX IF NOT EXISTS idx_products_name ON public.products(name);
+CREATE INDEX IF NOT EXISTS idx_products_barcode ON public.products(barcode);
 
 -- Customers
 CREATE TABLE public.customers (

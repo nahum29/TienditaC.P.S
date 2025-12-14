@@ -80,7 +80,7 @@ export default function InventoryPage() {
         is_bulk: formData.is_bulk,
       };
 
-      // If SKU not provided, generate one. If product is marked as bulk, prefix with BULK- so POS can detect it.
+      // If SKU not provided, generate one using EAN-13 format (13 numeric digits)
       const generateSKU = () => {
         // Generate a 12-digit numeric payload and compute EAN-13 checksum
         const digits = Array.from({ length: 12 }, () => Math.floor(Math.random() * 10)).join('');
@@ -95,10 +95,7 @@ export default function InventoryPage() {
       };
 
       if (!formData.sku) {
-        const skuGenerated = generateSKU();
-        data.sku = formData.is_bulk ? `BULK-${skuGenerated}` : skuGenerated;
-      } else if (formData.is_bulk && !formData.sku.startsWith('BULK-')) {
-        data.sku = `BULK-${formData.sku}`;
+        data.sku = generateSKU(); // Generar código para todos los productos (a granel o no)
       }
 
       if (editingId) {
@@ -126,7 +123,7 @@ export default function InventoryPage() {
   };
 
   const handleEdit = (product: Product) => {
-    const bulkFlag = !!(((product as any).is_bulk) || (product.sku && product.sku.startsWith('BULK-')));
+    const bulkFlag = !!((product as any).is_bulk);
     setFormData({
       name: product.name,
       sku: product.sku || '',

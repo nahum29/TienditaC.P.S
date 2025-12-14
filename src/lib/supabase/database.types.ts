@@ -60,6 +60,8 @@ export interface Database {
           stock: number;
           low_stock_threshold: number | null;
           category_id: string | null;
+          is_bulk: boolean;
+          barcode: string | null;
           active: boolean;
           created_at: string;
           updated_at: string;
@@ -74,6 +76,8 @@ export interface Database {
           stock?: number;
           low_stock_threshold?: number | null;
           category_id?: string | null;
+          is_bulk?: boolean;
+          barcode?: string | null;
           active?: boolean;
           created_at?: string;
           updated_at?: string;
@@ -88,6 +92,8 @@ export interface Database {
           stock?: number;
           low_stock_threshold?: number | null;
           category_id?: string | null;
+          is_bulk?: boolean;
+          barcode?: string | null;
           active?: boolean;
           created_at?: string;
           updated_at?: string;
