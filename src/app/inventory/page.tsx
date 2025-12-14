@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { Database } from '@/lib/supabase/database.types';
 import { Sidebar } from '@/components/sidebar';
@@ -8,8 +8,9 @@ import { Navbar } from '@/components/navbar';
 import { Modal } from '@/components/modal';
 import { Button } from '@/components/button';
 import { Table } from '@/components/table';
-import { Plus, Edit2, Trash2 } from 'lucide-react';
+import { Plus, Edit2, Trash2, Barcode } from 'lucide-react';
 import toast from 'react-hot-toast';
+import JsBarcode from 'jsbarcode';
 
 type Product = Database['public']['Tables']['products']['Row'];
 
@@ -19,6 +20,8 @@ export default function InventoryPage() {
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [showBarcodeModal, setShowBarcodeModal] = useState(false);
+  const [selectedBarcodes, setSelectedBarcodes] = useState<Set<string>>(new Set());
 
   const [formData, setFormData] = useState({
     name: '',
@@ -152,6 +155,136 @@ export default function InventoryPage() {
     }
   };
 
+  const toggleBarcodeSelection = (productId: string) => {
+    setSelectedBarcodes((prev) => {
+      const newSet = new Set(prev);
+      if (newSet.has(productId)) {
+        newSet.delete(productId);
+      } else {
+        newSet.add(productId);
+      }
+      return newSet;
+    });
+  };
+
+  const toggleAllBarcodes = () => {
+    if (selectedBarcodes.size === products.length) {
+      setSelectedBarcodes(new Set());
+    } else {
+      setSelectedBarcodes(new Set(products.map((p) => p.id)));
+    }
+  };
+
+  const handlePrintBarcodes = () => {
+    if (selectedBarcodes.size === 0) {
+      toast.error('Selecciona al menos un producto');
+      return;
+    }
+
+    const selectedProducts = products.filter((p) => selectedBarcodes.has(p.id));
+    
+    // Crear contenedor HTML para impresión
+    const printContainer = document.createElement('div');
+    printContainer.style.width = '80mm';
+    printContainer.style.fontFamily = 'monospace';
+    printContainer.style.padding = '5mm';
+
+    selectedProducts.forEach((product, index) => {
+      if (!product.sku) return;
+
+      // Contenedor de cada código de barras
+      const barcodeWrapper = document.createElement('div');
+      barcodeWrapper.style.marginBottom = '15mm';
+      barcodeWrapper.style.pageBreakInside = 'avoid';
+      barcodeWrapper.style.textAlign = 'center';
+
+      // Nombre del producto (arriba)
+      const nameDiv = document.createElement('div');
+      nameDiv.textContent = product.name;
+      nameDiv.style.fontSize = '10pt';
+      nameDiv.style.fontWeight = 'bold';
+      nameDiv.style.marginBottom = '3mm';
+      nameDiv.style.wordWrap = 'break-word';
+      barcodeWrapper.appendChild(nameDiv);
+
+      // Canvas para el código de barras
+      const canvas = document.createElement('canvas');
+      try {
+        JsBarcode(canvas, product.sku, {
+          format: 'CODE128',
+          width: 2,
+          height: 50,
+          displayValue: false,
+          margin: 5,
+        });
+        barcodeWrapper.appendChild(canvas);
+      } catch (e) {
+        console.error('Error generando código de barras', e);
+        return;
+      }
+
+      // Número debajo del código
+      const numberDiv = document.createElement('div');
+      numberDiv.textContent = product.sku;
+      numberDiv.style.fontSize = '9pt';
+      numberDiv.style.marginTop = '2mm';
+      barcodeWrapper.appendChild(numberDiv);
+
+      // Línea separadora (excepto el último)
+      if (index < selectedProducts.length - 1) {
+        const separator = document.createElement('div');
+        separator.style.borderTop = '1px dashed #ccc';
+        separator.style.margin = '5mm 0';
+        barcodeWrapper.appendChild(separator);
+      }
+
+      printContainer.appendChild(barcodeWrapper);
+    });
+
+    // Abrir ventana de impresión
+    const printWindow = window.open('', '_blank');
+    if (printWindow) {
+      printWindow.document.write(`
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <title>Códigos de Barras</title>
+            <style>
+              @page {
+                size: 80mm auto;
+                margin: 0;
+              }
+              body {
+                margin: 0;
+                padding: 0;
+              }
+              @media print {
+                body {
+                  width: 80mm;
+                }
+              }
+            </style>
+          </head>
+          <body>
+            ${printContainer.innerHTML}
+          </body>
+        </html>
+      `);
+      printWindow.document.close();
+      
+      printWindow.onload = () => {
+        setTimeout(() => {
+          printWindow.print();
+        }, 250);
+      };
+    } else {
+      toast.error('No se pudo abrir ventana de impresión');
+    }
+
+    setShowBarcodeModal(false);
+    setSelectedBarcodes(new Set());
+  };
+
   const tableRows = products.map((p) => [
     p.sku || '-',
     p.name,
@@ -173,10 +306,22 @@ export default function InventoryPage() {
         <main className="p-6">
           <div className="flex justify-between items-center mb-6">
             <h1 className="text-3xl font-bold text-gray-800">Inventario</h1>
-            <Button onClick={() => { setShowModal(true); setEditingId(null); setFormData({ name: '', sku: '', description: '', price: '', cost: '', stock: '', low_stock_threshold: '', is_bulk: false }); }}>
-              <Plus className="w-5 h-5 inline mr-2" />
-              Nuevo Producto
-            </Button>
+            <div className="flex gap-2">
+              <Button 
+                onClick={() => {
+                  setShowBarcodeModal(true);
+                  setSelectedBarcodes(new Set());
+                }}
+                variant="secondary"
+              >
+                <Barcode className="w-5 h-5 inline mr-2" />
+                Imprimir Códigos
+              </Button>
+              <Button onClick={() => { setShowModal(true); setEditingId(null); setFormData({ name: '', sku: '', description: '', price: '', cost: '', stock: '', low_stock_threshold: '', is_bulk: false }); }}>
+                <Plus className="w-5 h-5 inline mr-2" />
+                Nuevo Producto
+              </Button>
+            </div>
           </div>
 
           <div className="bg-white rounded-lg shadow">
@@ -274,6 +419,81 @@ export default function InventoryPage() {
                 </Button>
               </div>
             </form>
+          </Modal>
+
+          {/* Modal de Impresión de Códigos de Barras */}
+          <Modal
+            isOpen={showBarcodeModal}
+            onClose={() => {
+              setShowBarcodeModal(false);
+              setSelectedBarcodes(new Set());
+            }}
+            title="Seleccionar Productos para Imprimir"
+            className="max-w-2xl"
+          >
+            <div className="space-y-4">
+              <div className="flex justify-between items-center">
+                <p className="text-sm text-gray-600">
+                  Selecciona los productos cuyos códigos de barras deseas imprimir
+                </p>
+                <Button
+                  onClick={toggleAllBarcodes}
+                  variant="secondary"
+                  size="sm"
+                >
+                  {selectedBarcodes.size === products.length ? 'Deseleccionar Todos' : 'Seleccionar Todos'}
+                </Button>
+              </div>
+
+              <div className="max-h-96 overflow-y-auto border rounded p-3 space-y-2">
+                {products.map((product) => (
+                  <label
+                    key={product.id}
+                    className="flex items-center gap-3 p-3 hover:bg-gray-50 rounded cursor-pointer border border-gray-200"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedBarcodes.has(product.id)}
+                      onChange={() => toggleBarcodeSelection(product.id)}
+                      className="w-4 h-4 text-blue-600"
+                    />
+                    <div className="flex-1">
+                      <p className="font-medium text-gray-900">{product.name}</p>
+                      <p className="text-xs text-gray-500">
+                        SKU: {product.sku || 'Sin código'} | Precio: ${product.price.toFixed(2)}
+                      </p>
+                    </div>
+                  </label>
+                ))}
+                {products.length === 0 && (
+                  <p className="text-gray-500 text-center py-8">No hay productos disponibles</p>
+                )}
+              </div>
+
+              <div className="bg-blue-50 border border-blue-200 rounded p-3">
+                <p className="text-sm text-gray-700">
+                  Se imprimirán <strong>{selectedBarcodes.size}</strong> códigos de barras
+                </p>
+              </div>
+
+              <div className="flex gap-3 justify-end pt-2">
+                <Button
+                  onClick={() => {
+                    setShowBarcodeModal(false);
+                    setSelectedBarcodes(new Set());
+                  }}
+                  variant="secondary"
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  onClick={handlePrintBarcodes}
+                  disabled={selectedBarcodes.size === 0}
+                >
+                  Imprimir {selectedBarcodes.size > 0 && `(${selectedBarcodes.size})`}
+                </Button>
+              </div>
+            </div>
           </Modal>
         </main>
       </div>
