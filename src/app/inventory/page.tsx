@@ -183,31 +183,13 @@ export default function InventoryPage() {
 
     const selectedProducts = products.filter((p) => selectedBarcodes.has(p.id));
     
-    // Crear contenedor HTML para impresión
-    const printContainer = document.createElement('div');
-    printContainer.style.width = '80mm';
-    printContainer.style.fontFamily = 'monospace';
-    printContainer.style.padding = '5mm';
+    // Crear HTML para impresión con imágenes base64
+    let htmlContent = '';
 
     selectedProducts.forEach((product, index) => {
       if (!product.sku) return;
 
-      // Contenedor de cada código de barras
-      const barcodeWrapper = document.createElement('div');
-      barcodeWrapper.style.marginBottom = '15mm';
-      barcodeWrapper.style.pageBreakInside = 'avoid';
-      barcodeWrapper.style.textAlign = 'center';
-
-      // Nombre del producto (arriba)
-      const nameDiv = document.createElement('div');
-      nameDiv.textContent = product.name;
-      nameDiv.style.fontSize = '10pt';
-      nameDiv.style.fontWeight = 'bold';
-      nameDiv.style.marginBottom = '3mm';
-      nameDiv.style.wordWrap = 'break-word';
-      barcodeWrapper.appendChild(nameDiv);
-
-      // Canvas para el código de barras
+      // Crear canvas temporal para generar el código de barras
       const canvas = document.createElement('canvas');
       try {
         JsBarcode(canvas, product.sku, {
@@ -217,28 +199,38 @@ export default function InventoryPage() {
           displayValue: false,
           margin: 5,
         });
-        barcodeWrapper.appendChild(canvas);
+
+        // Convertir canvas a imagen base64
+        const barcodeImage = canvas.toDataURL('image/png');
+
+        // Crear HTML de cada código
+        htmlContent += `
+          <div style="
+            margin-bottom: 15mm;
+            page-break-inside: avoid;
+            text-align: center;
+          ">
+            <div style="
+              font-size: 10pt;
+              font-weight: bold;
+              margin-bottom: 3mm;
+              word-wrap: break-word;
+            ">
+              ${product.name}
+            </div>
+            <img src="${barcodeImage}" alt="Código de barras" style="display: block; margin: 0 auto;" />
+            <div style="
+              font-size: 9pt;
+              margin-top: 2mm;
+            ">
+              ${product.sku}
+            </div>
+            ${index < selectedProducts.length - 1 ? '<div style="border-top: 1px dashed #ccc; margin: 5mm 0;"></div>' : ''}
+          </div>
+        `;
       } catch (e) {
         console.error('Error generando código de barras', e);
-        return;
       }
-
-      // Número debajo del código
-      const numberDiv = document.createElement('div');
-      numberDiv.textContent = product.sku;
-      numberDiv.style.fontSize = '9pt';
-      numberDiv.style.marginTop = '2mm';
-      barcodeWrapper.appendChild(numberDiv);
-
-      // Línea separadora (excepto el último)
-      if (index < selectedProducts.length - 1) {
-        const separator = document.createElement('div');
-        separator.style.borderTop = '1px dashed #ccc';
-        separator.style.margin = '5mm 0';
-        barcodeWrapper.appendChild(separator);
-      }
-
-      printContainer.appendChild(barcodeWrapper);
     });
 
     // Abrir ventana de impresión
@@ -257,6 +249,9 @@ export default function InventoryPage() {
               body {
                 margin: 0;
                 padding: 0;
+                width: 80mm;
+                font-family: monospace;
+                padding: 5mm;
               }
               @media print {
                 body {
@@ -266,7 +261,7 @@ export default function InventoryPage() {
             </style>
           </head>
           <body>
-            ${printContainer.innerHTML}
+            ${htmlContent}
           </body>
         </html>
       `);
@@ -278,8 +273,10 @@ export default function InventoryPage() {
         }, 250);
       };
     } else {
-      toast.error('No se pudo abrir ventana de impresión');
+      toast.error('No se pudo abrir la ventana de impresión');
     }
+
+    setShowBarcodeModal(false);
 
     setShowBarcodeModal(false);
     setSelectedBarcodes(new Set());
