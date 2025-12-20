@@ -33,15 +33,74 @@ export default function POSPage() {
   const [searchProduct, setSearchProduct] = useState('');
   const [showCustomerModal, setShowCustomerModal] = useState(false);
   const [newCustomer, setNewCustomer] = useState({ name: '', phone: '', email: '', address: '' });
+  
+  // Nuevas mejoras
+  const [amountReceived, setAmountReceived] = useState('');
+  const [customerSearch, setCustomerSearch] = useState('');
+  const [isScanning, setIsScanning] = useState(false);
 
   const router = useRouter();
   const supabase = createClient();
   const barcodeBuffer = useRef<string>('');
   const barcodeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // Audio para beeps
+  const playBeep = (success = true) => {
+    const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+    const oscillator = audioContext.createOscillator();
+    const gainNode = audioContext.createGain();
+    
+    oscillator.connect(gainNode);
+    gainNode.connect(audioContext.destination);
+    
+    oscillator.frequency.value = success ? 800 : 400;
+    oscillator.type = 'sine';
+    
+    gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+    gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.1);
+    
+    oscillator.start(audioContext.currentTime);
+    oscillator.stop(audioContext.currentTime + 0.1);
+  };
 
   useEffect(() => {
     fetchData();
   }, []);
+
+  // Atajos de teclado: F1 para cobrar, F2 para limpiar, ESC para cancelar
+  useEffect(() => {
+    const handleKeyboardShortcuts = (e: KeyboardEvent) => {
+      // Solo si no estamos en un input
+      const target = e.target as HTMLElement;
+      const isInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT';
+      
+      if (e.key === 'F1') {
+        e.preventDefault();
+        if (cart.length > 0) {
+          handleCompleteSale();
+        }
+      } else if (e.key === 'F2') {
+        e.preventDefault();
+        if (cart.length > 0 && confirm('¿Limpiar el carrito?')) {
+          setCart([]);
+          setAmountReceived('');
+          toast.success('Carrito limpiado');
+        }
+      } else if (e.key === 'Escape') {
+        if (!isInput && cart.length > 0) {
+          if (confirm('¿Cancelar la venta actual?')) {
+            setCart([]);
+            setAmountReceived('');
+            setSelectedCustomer('');
+            toast.info('Venta cancelada');
+          }
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyboardShortcuts);
+    return () => window.removeEventListener('keydown', handleKeyboardShortcuts);
+  }, [cart]);
 
   useEffect(() => {
     // Listener para escaneo de códigos de barras
@@ -55,6 +114,7 @@ export default function POSPage() {
       // Detectar escaneo: acumular caracteres hasta Enter (rápido)
       if (e.key === 'Enter' && barcodeBuffer.current.length > 0) {
         e.preventDefault();
+        setIsScanning(false);
         handleBarcodeScanned(barcodeBuffer.current);
         barcodeBuffer.current = '';
         if (barcodeTimeoutRef.current) clearTimeout(barcodeTimeoutRef.current);
@@ -63,6 +123,7 @@ export default function POSPage() {
 
       // Acumular caracteres (excluyendo teclas especiales)
       if (e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        if (!isScanning) setIsScanning(true);
         barcodeBuffer.current += e.key;
 
         // Reset timeout si hay uno activo
@@ -71,6 +132,7 @@ export default function POSPage() {
         // Si no se recibe más input en 1 segundo, asumir que fue un error
         barcodeTimeoutRef.current = setTimeout(() => {
           barcodeBuffer.current = '';
+          setIsScanning(false);
         }, 1000);
       }
     };
@@ -110,12 +172,15 @@ export default function POSPage() {
     if (product) {
       // Producto existe: agregar al carrito
       if (product.stock <= 0) {
+        playBeep(false);
         toast.error('Producto sin stock');
         return;
       }
+      playBeep(true);
       addToCart(product);
     } else {
       // Producto no existe: redirigir a Inventario con el código pre-llenado
+      playBeep(false);
       toast.success('Producto no encontrado. Redirigiendo a Inventario...');
       // Guardar el código en sessionStorage para que Inventario lo cargue
       sessionStorage.setItem('newProductSKU', barcode);
@@ -443,15 +508,18 @@ export default function POSPage() {
         })
       );
 
+      playBeep(true);
       toast.success('Venta completada exitosamente');
       setCart([]);
       setSelectedCustomer('');
       setPaymentMethod('cash');
+      setAmountReceived('');
       fetchData();
     } catch (error: any) {
       console.error('Error completing sale:', error);
       // Supabase Error object may be nested
       const msg = error?.message || error?.error_description || JSON.stringify(error);
+      playBeep(false);
       toast.error(msg || 'Error al completar la venta');
     }
   };
@@ -472,7 +540,23 @@ export default function POSPage() {
       <div className="flex-1">
         <Navbar />
         <main className="p-6">
-          <h1 className="text-3xl font-bold text-gray-800 mb-6">Punto de Venta</h1>
+          {/* Indicador de escaneo */}
+          {isScanning && (
+            <div className="fixed top-20 right-6 bg-blue-500 text-white px-6 py-3 rounded-lg shadow-lg z-50 animate-pulse flex items-center gap-2">
+              <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+              Escaneando código...
+            </div>
+          )}
+          
+          <div className="flex justify-between items-center mb-6">
+            <h1 className="text-3xl font-bold text-gray-800">Punto de Venta</h1>
+            <div className="text-sm text-gray-600 bg-gray-100 px-3 py-2 rounded-lg">
+              <div><strong>F1:</strong> Cobrar | <strong>F2:</strong> Limpiar | <strong>ESC:</strong> Cancelar</div>
+            </div>
+          </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Products */}
@@ -553,6 +637,40 @@ export default function POSPage() {
                         <span className="font-semibold">Total:</span>
                         <span className="font-bold text-lg text-blue-600">${total.toFixed(2)}</span>
                       </div>
+                      
+                      {/* Calculadora de cambio */}
+                      {paymentMethod !== 'credit' && (
+                        <div className="mt-3 space-y-2">
+                          <label className="block text-sm font-medium text-gray-700">
+                            Monto Recibido
+                          </label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={amountReceived}
+                            onChange={(e) => setAmountReceived(e.target.value)}
+                            placeholder="0.00"
+                            className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder-gray-400 text-gray-800"
+                          />
+                          {amountReceived && parseFloat(amountReceived) >= total && (
+                            <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+                              <div className="flex justify-between items-center">
+                                <span className="text-sm font-medium text-gray-700">Cambio:</span>
+                                <span className="text-xl font-bold text-green-600">
+                                  ${(parseFloat(amountReceived) - total).toFixed(2)}
+                                </span>
+                              </div>
+                            </div>
+                          )}
+                          {amountReceived && parseFloat(amountReceived) < total && (
+                            <div className="bg-red-50 border border-red-200 rounded-lg p-2">
+                              <span className="text-sm text-red-600">
+                                Falta: ${(total - parseFloat(amountReceived)).toFixed(2)}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
 
                     <div className="space-y-3 mb-4">
@@ -560,18 +678,60 @@ export default function POSPage() {
                         <label className="block text-sm font-medium text-gray-700 mb-2">
                           Cliente (Opcional)
                         </label>
-                        <select
-                          value={selectedCustomer}
-                          onChange={(e) => setSelectedCustomer(e.target.value)}
-                          className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        >
-                          <option value="">Cliente Genérico</option>
-                          {customers.map((c) => (
-                            <option key={c.id} value={c.id}>
-                              {c.name}
-                            </option>
-                          ))}
-                        </select>
+                        {/* Autocompletar de clientes */}
+                        <div className="relative">
+                          <input
+                            type="text"
+                            value={customerSearch}
+                            onChange={(e) => {
+                              setCustomerSearch(e.target.value);
+                              setSelectedCustomer('');
+                            }}
+                            placeholder="Buscar cliente por nombre..."
+                            className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder-gray-400 text-gray-800"
+                          />
+                          {customerSearch && (
+                            <div className="absolute z-10 w-full mt-1 bg-white border rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                              {customers
+                                .filter(c => c.name.toLowerCase().includes(customerSearch.toLowerCase()))
+                                .slice(0, 5)
+                                .map(customer => (
+                                  <button
+                                    key={customer.id}
+                                    onClick={() => {
+                                      setSelectedCustomer(customer.id);
+                                      setCustomerSearch(customer.name);
+                                    }}
+                                    className="w-full text-left px-3 py-2 hover:bg-blue-50 border-b last:border-b-0"
+                                  >
+                                    <div className="font-medium">{customer.name}</div>
+                                    {customer.phone && (
+                                      <div className="text-xs text-gray-500">{customer.phone}</div>
+                                    )}
+                                  </button>
+                                ))}
+                              {customers.filter(c => c.name.toLowerCase().includes(customerSearch.toLowerCase())).length === 0 && (
+                                <div className="px-3 py-2 text-sm text-gray-500">
+                                  No se encontraron clientes
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                        {selectedCustomer && (
+                          <div className="mt-2 text-sm text-green-600 flex items-center gap-1">
+                            ✓ {customers.find(c => c.id === selectedCustomer)?.name}
+                            <button
+                              onClick={() => {
+                                setSelectedCustomer('');
+                                setCustomerSearch('');
+                              }}
+                              className="ml-2 text-red-500 hover:text-red-700"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        )}
                       </div>
 
                       <Button
