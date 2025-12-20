@@ -32,6 +32,7 @@ export default function CreditsPage() {
   const [credits, setCredits] = useState<CreditDetail[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterStatus, setFilterStatus] = useState<'all' | 'open' | 'overdue' | 'closed'>('all');
+  const [filterPeriod, setFilterPeriod] = useState<'all' | 'week' | 'month' | 'overdue'>('all');
   const [showTicketModal, setShowTicketModal] = useState(false);
   const [selectedCredit, setSelectedCredit] = useState<CreditDetail | null>(null);
   const [saleItems, setSaleItems] = useState<SaleItemDetail[]>([]);
@@ -156,8 +157,29 @@ export default function CreditsPage() {
   };
 
   const filteredCredits = credits.filter((c) => {
-    if (filterStatus === 'all') return true;
-    return c.status === filterStatus;
+    // Filtro por estado
+    if (filterStatus !== 'all' && c.status !== filterStatus) return false;
+    
+    // Filtro por periodo
+    if (filterPeriod !== 'all') {
+      const now = new Date();
+      const creditDate = new Date(c.week_start);
+      const dueDate = new Date(c.due_date);
+      
+      if (filterPeriod === 'week') {
+        const weekAgo = new Date(now);
+        weekAgo.setDate(weekAgo.getDate() - 7);
+        return creditDate >= weekAgo;
+      } else if (filterPeriod === 'month') {
+        const monthAgo = new Date(now);
+        monthAgo.setMonth(monthAgo.getMonth() - 1);
+        return creditDate >= monthAgo;
+      } else if (filterPeriod === 'overdue') {
+        return dueDate < now && c.status === 'open';
+      }
+    }
+    
+    return true;
   });
 
   const handleShowTicket = async (credit: CreditDetail) => {
@@ -515,18 +537,34 @@ export default function CreditsPage() {
           </div>
 
           <div className="bg-white rounded-lg shadow p-6 mb-6">
-            <div className="flex flex-wrap gap-2 mb-4 items-center justify-between">
-              <div className="flex flex-wrap gap-2">
-                {['all', 'open', 'overdue', 'closed'].map((status) => (
-                  <Button
-                    key={status}
-                    onClick={() => setFilterStatus(status as typeof filterStatus)}
-                    variant={filterStatus === status ? 'primary' : 'secondary'}
-                    size="sm"
-                  >
-                    {status === 'all' ? 'Todos' : status === 'open' ? 'Actuales' : status === 'overdue' ? 'Atrasados' : 'Cerrados'}
-                  </Button>
-                ))}
+            <div className="flex flex-wrap gap-4 mb-4 items-center justify-between">
+              <div className="space-y-2">
+                <div className="flex flex-wrap gap-2">
+                  <span className="text-sm font-medium text-gray-700">Estado:</span>
+                  {['all', 'open', 'overdue', 'closed'].map((status) => (
+                    <Button
+                      key={status}
+                      onClick={() => setFilterStatus(status as typeof filterStatus)}
+                      variant={filterStatus === status ? 'primary' : 'secondary'}
+                      size="sm"
+                    >
+                      {status === 'all' ? 'Todos' : status === 'open' ? 'Actuales' : status === 'overdue' ? 'Atrasados' : 'Cerrados'}
+                    </Button>
+                  ))}
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <span className="text-sm font-medium text-gray-700">Periodo:</span>
+                  {['all', 'week', 'month', 'overdue'].map((period) => (
+                    <Button
+                      key={period}
+                      onClick={() => setFilterPeriod(period as typeof filterPeriod)}
+                      variant={filterPeriod === period ? 'primary' : 'secondary'}
+                      size="sm"
+                    >
+                      {period === 'all' ? 'Todo' : period === 'week' ? 'Esta Semana' : period === 'month' ? 'Este Mes' : 'Vencidos'}
+                    </Button>
+                  ))}
+                </div>
               </div>
               <Button
                 onClick={handleOpenBulkPrintModal}

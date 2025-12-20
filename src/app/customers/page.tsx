@@ -29,6 +29,11 @@ export default function CustomersPage() {
   const [userId] = useState('00000000-0000-0000-0000-000000000000');
   const [customerCredits, setCustomerCredits] = useState<CreditWithDetails[]>([]);
   const [selectedCredits, setSelectedCredits] = useState<Set<string>>(new Set());
+  
+  // Nuevas mejoras
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
+  const [customerHistory, setCustomerHistory] = useState<any[]>([]);
 
   const [formData, setFormData] = useState({
     name: '',
@@ -117,6 +122,42 @@ export default function CustomersPage() {
         toast.error('Error al eliminar');
       }
     }
+  };
+
+  // Ver historial de compras
+  const handleViewHistory = async (customerId: string) => {
+    try {
+      const { data: salesData, error } = await supabase
+        .from('sales')
+        .select('*, sale_items(*, product:products(name))')
+        .eq('customer_id', customerId)
+        .order('created_at', { ascending: false })
+        .limit(10);
+
+      if (error) throw error;
+
+      setCustomerHistory(salesData || []);
+      setSelectedCustomerId(customerId);
+      setShowHistoryModal(true);
+    } catch (error) {
+      toast.error('Error al cargar historial');
+    }
+  };
+
+  // Enviar recordatorio por WhatsApp
+  const handleSendWhatsApp = (customer: Customer) => {
+    if (!customer.phone) {
+      toast.error('Este cliente no tiene teléfono registrado');
+      return;
+    }
+
+    const phone = customer.phone.replace(/\D/g, ''); // Quitar caracteres no numéricos
+    const message = encodeURIComponent(
+      `Hola ${customer.name}, te recordamos que tienes un saldo pendiente de $${customer.balance.toFixed(2)} en Tiendita C.P.S. ¡Gracias!`
+    );
+    
+    window.open(`https://wa.me/${phone}?text=${message}`, '_blank');
+    toast.success('Abriendo WhatsApp...');
   };
 
   const handleOpenPaymentModal = async (customerId: string) => {
@@ -303,13 +344,16 @@ export default function CustomersPage() {
     }
   };
 
-  const tableRows = customers.map((c) => [
-    c.name,
-    c.phone || '-',
-    c.email || '-',
-    c.balance > 0 ? `Debe: $${c.balance.toFixed(2)}` : 'Al día',
-    c.balance > 0 ? '🔴' : '✅',
-  ]);
+  // Búsqueda inteligente
+  const filteredCustomers = customers.filter((c) => {
+    const query = searchQuery.toLowerCase();
+    return (
+      c.name.toLowerCase().includes(query) ||
+      (c.phone?.toLowerCase().includes(query)) ||
+      (c.email?.toLowerCase().includes(query)) ||
+      (c.address?.toLowerCase().includes(query))
+    );
+  });
 
   if (loading) {
     const { LoadingEagle } = require('@/components/loading-eagle');
@@ -330,13 +374,101 @@ export default function CustomersPage() {
             </Button>
           </div>
 
-          <div className="bg-white rounded-lg shadow">
-            <Table
-              headers={['Nombre', 'Teléfono', 'Correo', 'Saldo', 'Estado']}
-              rows={tableRows}
-              actions={[
-                {
-                  label: 'Pago',
+          {/* Búsqueda inteligente */}
+          <div className="mb-4">
+            <input
+              type="text"
+              placeholder="Buscar por nombre, teléfono, correo o dirección..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder-gray-400 text-gray-800"
+            />
+            {searchQuery && (
+              <p className="text-sm text-gray-600 mt-2">
+                Mostrando {filteredCustomers.length} de {customers.length} clientes
+              </p>
+            )}
+          </div>
+
+          <div className="bg-white rounded-lg shadow overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Nombre</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Teléfono</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Saldo</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Estado</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Acciones</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200">
+                {filteredCustomers.map((c) => (
+                  <tr key={c.id} className={c.balance > 0 ? 'bg-red-50' : ''}>
+                    <td className="px-6 py-4 text-sm font-medium text-gray-800">{c.name}</td>
+                    <td className="px-6 py-4 text-sm text-gray-600">{c.phone || '-'}</td>
+                    <td className="px-6 py-4 text-sm">
+                      {c.balance > 0 ? (
+                        <span className="font-semibold text-red-600">
+                          Debe: ${c.balance.toFixed(2)}
+                        </span>
+                      ) : (
+                        <span className="text-green-600">Al día</span>
+                      )}
+                    </td>
+                    <td className="px-6 py-4 text-sm">
+                      {c.balance > 0 ? (
+                        <span className="px-2 py-1 bg-red-200 text-red-800 rounded text-xs font-semibold">
+                          🔴 Adeudo
+                        </span>
+                      ) : (
+                        <span className="px-2 py-1 bg-green-200 text-green-800 rounded text-xs font-semibold">
+                          ✅ Al día
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-6 py-4 text-sm">
+                      <div className="flex gap-2 flex-wrap">
+                        {c.balance > 0 && (
+                          <button
+                            onClick={() => handleOpenPaymentModal(c.id)}
+                            className="px-3 py-1 bg-green-500 text-white rounded hover:bg-green-600 text-xs"
+                          >
+                            <DollarSign className="w-4 h-4 inline" /> Pago
+                          </button>
+                        )}
+                        <button
+                          onClick={() => handleViewHistory(c.id)}
+                          className="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 text-xs"
+                        >
+                          📋 Historial
+                        </button>
+                        {c.phone && (
+                          <button
+                            onClick={() => handleSendWhatsApp(c)}
+                            className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 text-xs"
+                          >
+                            💬 WhatsApp
+                          </button>
+                        )}
+                        <button
+                          onClick={() => handleEdit(c)}
+                          className="px-3 py-1 bg-gray-500 text-white rounded hover:bg-gray-600 text-xs"
+                        >
+                          <Edit2 className="w-4 h-4 inline" />
+                        </button>
+                        <button
+                          onClick={() => handleDelete(c.id)}
+                          className="px-3 py-1 bg-red-500 text-white rounded hover:bg-red-600 text-xs"
+                        >
+                          <Trash2 className="w-4 h-4 inline" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
                   onClick: (i) => handleOpenPaymentModal(customers[i].id),
                 },
                 { label: 'Editar', onClick: (i) => handleEdit(customers[i]) },
@@ -526,6 +658,77 @@ export default function CustomersPage() {
                 </Button>
               </div>
             </form>
+          </Modal>
+
+          {/* Modal de Historial de Compras */}
+          <Modal
+            isOpen={showHistoryModal}
+            onClose={() => {
+              setShowHistoryModal(false);
+              setCustomerHistory([]);
+              setSelectedCustomerId(null);
+            }}
+            title={`Historial de Compras - ${customers.find(c => c.id === selectedCustomerId)?.name}`}
+            className="max-w-4xl"
+          >
+            <div className="space-y-4">
+              {customerHistory.length === 0 ? (
+                <p className="text-center text-gray-500 py-8">No hay compras registradas</p>
+              ) : (
+                <div className="space-y-3">
+                  {customerHistory.map((sale) => (
+                    <div key={sale.id} className="border rounded-lg p-4 hover:bg-gray-50">
+                      <div className="flex justify-between items-start mb-2">
+                        <div>
+                          <p className="font-semibold text-gray-800">
+                            {new Date(sale.created_at).toLocaleDateString('es-MX', {
+                              year: 'numeric',
+                              month: 'long',
+                              day: 'numeric'
+                            })}
+                          </p>
+                          <p className="text-sm text-gray-600">
+                            {sale.sale_items?.length || 0} productos
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-lg font-bold text-blue-600">
+                            ${sale.total_amount.toFixed(2)}
+                          </p>
+                          <span className={`text-xs px-2 py-1 rounded ${
+                            sale.status === 'paid' 
+                              ? 'bg-green-200 text-green-800' 
+                              : 'bg-yellow-200 text-yellow-800'
+                          }`}>
+                            {sale.status === 'paid' ? '💳 Pagado' : '💰 Crédito'}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="mt-3 space-y-1">
+                        {sale.sale_items?.map((item: any, idx: number) => (
+                          <div key={idx} className="text-sm text-gray-600 flex justify-between">
+                            <span>• {item.product?.name || 'Producto'} x{item.quantity}</span>
+                            <span className="font-medium">${item.total_price.toFixed(2)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div className="flex justify-end pt-4">
+                <Button
+                  onClick={() => {
+                    setShowHistoryModal(false);
+                    setCustomerHistory([]);
+                    setSelectedCustomerId(null);
+                  }}
+                  variant="secondary"
+                >
+                  Cerrar
+                </Button>
+              </div>
+            </div>
           </Modal>
         </main>
       </div>

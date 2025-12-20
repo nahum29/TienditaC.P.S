@@ -35,6 +35,12 @@ export default function InventoryPage() {
     low_stock_threshold: '',
     is_bulk: false,
   });
+  
+  // Nuevas mejoras
+  const [editingPriceId, setEditingPriceId] = useState<string | null>(null);
+  const [tempPrice, setTempPrice] = useState('');
+  const [showImportModal, setShowImportModal] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const supabase = createClient();
 
@@ -225,6 +231,81 @@ export default function InventoryPage() {
     }
   };
 
+  // Edición rápida de precio
+  const handlePriceDoubleClick = (product: Product) => {
+    setEditingPriceId(product.id);
+    setTempPrice(product.price.toString());
+  };
+
+  const handlePriceSave = async (productId: string) => {
+    try {
+      const newPrice = parseFloat(tempPrice);
+      if (isNaN(newPrice) || newPrice <= 0) {
+        toast.error('Precio inválido');
+        return;
+      }
+
+      const { error } = await supabase
+        .from('products')
+        .update({ price: newPrice })
+        .eq('id', productId);
+
+      if (error) throw error;
+      
+      toast.success('Precio actualizado');
+      setEditingPriceId(null);
+      fetchData();
+    } catch (error) {
+      toast.error('Error al actualizar precio');
+    }
+  };
+
+  // Importar productos desde Excel
+  const handleImportExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const XLSX = await import('xlsx');
+      const data = await file.arrayBuffer();
+      const workbook = XLSX.read(data);
+      const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+      const jsonData = XLSX.utils.sheet_to_json(worksheet) as any[];
+
+      const productsToImport = jsonData.map((row) => ({
+        name: row.Nombre || row.nombre || row.name,
+        sku: row.SKU || row.sku || row.codigo,
+        description: row.Descripcion || row.descripcion || row.description || null,
+        price: parseFloat(row.Precio || row.precio || row.price || 0),
+        cost: parseFloat(row.Costo || row.costo || row.cost || 0) || null,
+        stock: parseInt(row.Stock || row.stock || 0) || 0,
+        low_stock_threshold: parseInt(row['Stock Minimo'] || row.stock_minimo || row.low_stock || 5) || 5,
+        is_bulk: (row['Es Granel'] || row.es_granel || row.is_bulk || 'no').toLowerCase() === 'si' || (row['Es Granel'] || row.es_granel || row.is_bulk) === true,
+      })).filter(p => p.name && p.price > 0);
+
+      if (productsToImport.length === 0) {
+        toast.error('No se encontraron productos válidos en el archivo');
+        return;
+      }
+
+      const { data: inserted, error } = await supabase
+        .from('products')
+        .insert(productsToImport)
+        .select();
+
+      if (error) throw error;
+
+      toast.success(`${inserted?.length || 0} productos importados exitosamente`);
+      setShowImportModal(false);
+      fetchData();
+    } catch (error) {
+      console.error(error);
+      toast.error('Error al importar productos. Verifica el formato del archivo.');
+    }
+
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
   const toggleBarcodeSelection = (productId: string) => {
     setSelectedBarcodes((prev) => {
       const newSet = new Set(prev);
@@ -384,6 +465,12 @@ export default function InventoryPage() {
                 <Barcode className="w-5 h-5 inline mr-2" />
                 Imprimir Códigos
               </Button>
+              <Button 
+                onClick={() => setShowImportModal(true)}
+                variant="secondary"
+              >
+                📥 Importar Excel
+              </Button>
               <Button onClick={() => { setShowModal(true); setEditingId(null); setFormData({ name: '', sku: '', description: '', price: '', cost: '', stock: '', low_stock_threshold: '', is_bulk: false }); }}>
                 <Plus className="w-5 h-5 inline mr-2" />
                 Nuevo Producto
@@ -419,15 +506,110 @@ export default function InventoryPage() {
             )}
           </div>
 
-          <div className="bg-white rounded-lg shadow">
-            <Table
-              headers={['SKU', 'Nombre', 'Precio', 'Stock', 'Estado']}
-              rows={tableRows}
-              actions={[
-                { label: 'Editar', onClick: (i) => handleEdit(filteredProducts[i]) },
-                { label: 'Eliminar', onClick: (i) => handleDelete(filteredProducts[i].id), variant: 'danger' },
-              ]}
-            />
+          {/* Alertas de stock crítico */}
+          {filteredProducts.filter(p => p.stock <= (p.low_stock_threshold || 5)).length > 0 && (
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
+              <div className="flex items-center gap-2">
+                <span className="text-2xl">⚠️</span>
+                <div>
+                  <p className="font-semibold text-yellow-800">
+                    {filteredProducts.filter(p => p.stock <= (p.low_stock_threshold || 5)).length} productos con stock bajo
+                  </p>
+                  <p className="text-sm text-yellow-700">
+                    Considera reabastecer pronto
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="bg-white rounded-lg shadow overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">SKU</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Nombre</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Precio</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Stock</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Estado</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Acciones</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200">
+                {filteredProducts.map((p) => (
+                  <tr key={p.id} className={p.stock <= (p.low_stock_threshold || 5) ? 'bg-yellow-50' : ''}>
+                    <td className="px-6 py-4 text-sm text-gray-800">{p.sku || '-'}</td>
+                    <td className="px-6 py-4 text-sm text-gray-800">{p.name}</td>
+                    <td 
+                      className="px-6 py-4 text-sm text-gray-800 cursor-pointer hover:bg-blue-50"
+                      onDoubleClick={() => handlePriceDoubleClick(p)}
+                      title="Doble clic para editar"
+                    >
+                      {editingPriceId === p.id ? (
+                        <div className="flex gap-2">
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={tempPrice}
+                            onChange={(e) => setTempPrice(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') handlePriceSave(p.id);
+                              if (e.key === 'Escape') setEditingPriceId(null);
+                            }}
+                            className="w-24 px-2 py-1 border rounded"
+                            autoFocus
+                          />
+                          <button
+                            onClick={() => handlePriceSave(p.id)}
+                            className="px-2 py-1 bg-green-500 text-white rounded text-xs"
+                          >
+                            ✓
+                          </button>
+                          <button
+                            onClick={() => setEditingPriceId(null)}
+                            className="px-2 py-1 bg-gray-500 text-white rounded text-xs"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ) : (
+                        `$${p.price.toFixed(2)}`
+                      )}
+                    </td>
+                    <td className="px-6 py-4 text-sm text-gray-800">
+                      {(p as any).is_bulk ? `${(p.stock / 1000).toFixed(2)} kg` : String(p.stock)}
+                    </td>
+                    <td className="px-6 py-4 text-sm">
+                      {p.stock <= (p.low_stock_threshold || 5) ? (
+                        <span className="px-2 py-1 bg-yellow-200 text-yellow-800 rounded text-xs font-semibold">
+                          ⚠️ Bajo
+                        </span>
+                      ) : (
+                        <span className="px-2 py-1 bg-green-200 text-green-800 rounded text-xs font-semibold">
+                          ✓ OK
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-6 py-4 text-sm">
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => handleEdit(p)}
+                          className="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600"
+                        >
+                          Editar
+                        </button>
+                        <button
+                          onClick={() => handleDelete(p.id)}
+                          className="px-3 py-1 bg-red-500 text-white rounded hover:bg-red-600"
+                        >
+                          Eliminar
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
 
           <Modal
@@ -605,6 +787,51 @@ export default function InventoryPage() {
                   disabled={selectedBarcodes.size === 0}
                 >
                   Imprimir {selectedBarcodes.size > 0 && `(${selectedBarcodes.size})`}
+                </Button>
+              </div>
+            </div>
+          </Modal>
+
+          {/* Modal de Importar Excel */}
+          <Modal
+            isOpen={showImportModal}
+            onClose={() => setShowImportModal(false)}
+            title="Importar Productos desde Excel"
+            className="max-w-2xl"
+          >
+            <div className="space-y-4">
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <p className="text-sm text-gray-700 mb-2">
+                  <strong>Formato requerido:</strong> El archivo Excel debe tener las siguientes columnas:
+                </p>
+                <ul className="text-sm text-gray-600 list-disc list-inside space-y-1">
+                  <li><strong>Nombre</strong> (obligatorio)</li>
+                  <li><strong>SKU</strong> o Código (opcional)</li>
+                  <li><strong>Precio</strong> (obligatorio)</li>
+                  <li><strong>Costo</strong> (opcional)</li>
+                  <li><strong>Stock</strong> (opcional, por defecto 0)</li>
+                  <li><strong>Stock Minimo</strong> (opcional, por defecto 5)</li>
+                  <li><strong>Descripcion</strong> (opcional)</li>
+                  <li><strong>Es Granel</strong> (opcional: "si" o "no")</li>
+                </ul>
+              </div>
+
+              <div>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".xlsx,.xls,.csv"
+                  onChange={handleImportExcel}
+                  className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              <div className="flex gap-3 justify-end">
+                <Button
+                  onClick={() => setShowImportModal(false)}
+                  variant="secondary"
+                >
+                  Cerrar
                 </Button>
               </div>
             </div>
