@@ -450,6 +450,25 @@ export default function InventoryPage() {
                 placeholder="SKU"
                 value={formData.sku}
                 onChange={(e) => setFormData({ ...formData, sku: e.target.value })}
+                onKeyDown={(e) => {
+                  // Detectar escaneo (Enter después de escribir el código)
+                  if (e.key === 'Enter' && formData.sku && !editingId) {
+                    e.preventDefault();
+                    
+                    // Buscar si el producto ya existe
+                    const existingProduct = products.find(
+                      (p) => p.sku?.toLowerCase() === formData.sku.toLowerCase()
+                    );
+                    
+                    if (existingProduct) {
+                      toast.success(`Producto encontrado: ${existingProduct.name}. Abriendo para editar...`);
+                      setShowModal(false);
+                      setTimeout(() => {
+                        handleEdit(existingProduct);
+                      }, 100);
+                    }
+                  }
+                }}
                 className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder-gray-400 text-gray-800"
               />
               <label className="flex items-center gap-2 text-sm mt-2">
