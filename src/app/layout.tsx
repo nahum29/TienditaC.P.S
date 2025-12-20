@@ -2,6 +2,9 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "react-hot-toast";
+import GlobalSearch from "@/components/global-search";
+import Tutorial from "@/components/tutorial";
+import BackupManager from "@/components/backup-manager";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -30,6 +33,9 @@ export default function RootLayout({
       >
         {children}
         <Toaster position="top-right" />
+        <GlobalSearch />
+        <Tutorial />
+        <BackupManager />
       </body>
     </html>
   );

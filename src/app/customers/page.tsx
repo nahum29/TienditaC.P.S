@@ -469,13 +469,6 @@ export default function CustomersPage() {
               </tbody>
             </table>
           </div>
-                  onClick: (i) => handleOpenPaymentModal(customers[i].id),
-                },
-                { label: 'Editar', onClick: (i) => handleEdit(customers[i]) },
-                { label: 'Eliminar', onClick: (i) => handleDelete(customers[i].id), variant: 'danger' },
-              ]}
-            />
-          </div>
 
           <Modal
             isOpen={showModal}

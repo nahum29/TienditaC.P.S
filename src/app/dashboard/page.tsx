@@ -7,6 +7,7 @@ import { Sidebar } from '@/components/sidebar';
 import { Navbar } from '@/components/navbar';
 import { Modal } from '@/components/modal';
 import { TrendingUp, AlertTriangle, Users, ShoppingCart } from 'lucide-react';
+import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import * as XLSX from 'xlsx';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
@@ -14,6 +15,7 @@ import toast from 'react-hot-toast';
 type Product = Database['public']['Tables']['products']['Row'];
 type Sale = Database['public']['Tables']['sales']['Row'];
 type Customer = Database['public']['Tables']['customers']['Row'];
+type SaleItem = Database['public']['Tables']['sale_items']['Row'];
 
 export default function DashboardPage() {
   const [stats, setStats] = useState({
@@ -25,6 +27,9 @@ export default function DashboardPage() {
   });
   const [recentSales, setRecentSales] = useState<Sale[]>([]);
   const [lowStockProducts, setLowStockProducts] = useState<Product[]>([]);
+  const [salesChartData, setSalesChartData] = useState<any[]>([]);
+  const [topProducts, setTopProducts] = useState<any[]>([]);
+  const [previousMonthStats, setPreviousMonthStats] = useState({ revenue: 0, sales: 0 });
   const [loading, setLoading] = useState(true);
   const [showReportModal, setShowReportModal] = useState(false);
   const [reportStart, setReportStart] = useState<string>('');
@@ -41,10 +46,19 @@ export default function DashboardPage() {
 
   const fetchData = async () => {
     try {
-      const [salesRes, productsRes, customersRes] = await Promise.all([
-        supabase.from('sales').select('*').order('created_at', { ascending: false }).limit(10),
+      const now = new Date();
+      const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+      const startOfPrevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const endOfPrevMonth = new Date(now.getFullYear(), now.getMonth(), 0);
+
+      const [salesRes, productsRes, customersRes, recentSalesRes, saleItemsRes, prevMonthSalesRes] = await Promise.all([
+        supabase.from('sales').select('*').order('created_at', { ascending: false }).limit(100),
         supabase.from('products').select('*'),
         supabase.from('customers').select('*'),
+        supabase.from('sales').select('*').gte('created_at', thirtyDaysAgo.toISOString()).order('created_at', { ascending: false }),
+        supabase.from('sale_items').select('*, product:products(name)').gte('created_at', startOfMonth.toISOString()),
+        supabase.from('sales').select('*').gte('created_at', startOfPrevMonth.toISOString()).lte('created_at', endOfPrevMonth.toISOString()),
       ]);
 
       if (salesRes.error) throw salesRes.error;
@@ -54,6 +68,9 @@ export default function DashboardPage() {
       const sales = salesRes.data || [];
       const products = productsRes.data || [];
       const customers = customersRes.data || [];
+      const recentSalesData = recentSalesRes.data || [];
+      const saleItems = saleItemsRes.data || [];
+      const prevMonthSales = prevMonthSalesRes.data || [];
 
       const totalRevenue = sales.reduce((sum: number, s: Sale) => sum + s.total_amount, 0);
       const totalProfit = sales.reduce((sum: number, s: Sale) => sum + (s.total_amount - (s.total_cost || 0)), 0);
@@ -68,8 +85,45 @@ export default function DashboardPage() {
         customersWithDebt: withDebt.length,
       });
 
+      // Estadísticas del mes anterior
+      const prevRevenue = prevMonthSales.reduce((sum: number, s: Sale) => sum + s.total_amount, 0);
+      setPreviousMonthStats({
+        revenue: prevRevenue,
+        sales: prevMonthSales.length,
+      });
+
       setRecentSales(sales.slice(0, 5));
       setLowStockProducts(low.slice(0, 5));
+
+      // Preparar datos para gráfica de ventas por día (últimos 30 días)
+      const salesByDay: { [key: string]: number } = {};
+      recentSalesData.forEach((sale: Sale) => {
+        const date = new Date(sale.created_at).toLocaleDateString('es-MX', { month: 'short', day: 'numeric' });
+        salesByDay[date] = (salesByDay[date] || 0) + sale.total_amount;
+      });
+
+      const chartData = Object.entries(salesByDay)
+        .map(([date, total]) => ({ date, total }))
+        .slice(-14); // Últimos 14 días
+
+      setSalesChartData(chartData);
+
+      // Top 10 productos más vendidos
+      const productSales: { [key: string]: { name: string; quantity: number; revenue: number } } = {};
+      saleItems.forEach((item: any) => {
+        const productName = item.product?.name || 'Desconocido';
+        if (!productSales[productName]) {
+          productSales[productName] = { name: productName, quantity: 0, revenue: 0 };
+        }
+        productSales[productName].quantity += item.quantity;
+        productSales[productName].revenue += item.total_price;
+      });
+
+      const topProductsData = Object.values(productSales)
+        .sort((a, b) => b.revenue - a.revenue)
+        .slice(0, 10);
+
+      setTopProducts(topProductsData);
     } catch (error) {
       toast.error('Error al cargar estadísticas');
     } finally {
@@ -414,6 +468,116 @@ export default function DashboardPage() {
               </div>
             </div>
           </div>
+
+          {/* Comparativa mes anterior */}
+          {previousMonthStats.revenue > 0 && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
+              <div className="bg-white rounded-lg shadow p-6">
+                <p className="text-gray-600 text-sm mb-2">Comparativa de Ingresos</p>
+                <div className="flex items-center gap-2">
+                  <p className="text-2xl font-bold text-gray-800">${stats.totalRevenue.toFixed(2)}</p>
+                  {stats.totalRevenue > previousMonthStats.revenue ? (
+                    <span className="text-green-600 text-sm flex items-center">
+                      <TrendingUp className="w-4 h-4" />
+                      +{(((stats.totalRevenue - previousMonthStats.revenue) / previousMonthStats.revenue) * 100).toFixed(1)}%
+                    </span>
+                  ) : (
+                    <span className="text-red-600 text-sm flex items-center">
+                      <TrendingUp className="w-4 h-4 rotate-180" />
+                      {(((stats.totalRevenue - previousMonthStats.revenue) / previousMonthStats.revenue) * 100).toFixed(1)}%
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-gray-500 mt-1">vs mes anterior: ${previousMonthStats.revenue.toFixed(2)}</p>
+              </div>
+
+              <div className="bg-white rounded-lg shadow p-6">
+                <p className="text-gray-600 text-sm mb-2">Comparativa de Ventas</p>
+                <div className="flex items-center gap-2">
+                  <p className="text-2xl font-bold text-gray-800">{stats.totalSales}</p>
+                  {stats.totalSales > previousMonthStats.sales ? (
+                    <span className="text-green-600 text-sm flex items-center">
+                      <TrendingUp className="w-4 h-4" />
+                      +{(((stats.totalSales - previousMonthStats.sales) / previousMonthStats.sales) * 100).toFixed(1)}%
+                    </span>
+                  ) : (
+                    <span className="text-red-600 text-sm flex items-center">
+                      <TrendingUp className="w-4 h-4 rotate-180" />
+                      {(((stats.totalSales - previousMonthStats.sales) / previousMonthStats.sales) * 100).toFixed(1)}%
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-gray-500 mt-1">vs mes anterior: {previousMonthStats.sales} ventas</p>
+              </div>
+            </div>
+          )}
+
+          {/* Gráficas */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+            {/* Tendencia de Ventas */}
+            <div className="bg-white rounded-lg shadow p-6">
+              <h2 className="text-lg font-bold text-gray-800 mb-4">Tendencia de Ventas (últimos 14 días)</h2>
+              {salesChartData.length > 0 ? (
+                <ResponsiveContainer width="100%" height={250}>
+                  <LineChart data={salesChartData}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="date" tick={{ fontSize: 12 }} />
+                    <YAxis tick={{ fontSize: 12 }} />
+                    <Tooltip />
+                    <Legend />
+                    <Line type="monotone" dataKey="total" stroke="#3b82f6" strokeWidth={2} name="Ventas ($)" />
+                  </LineChart>
+                </ResponsiveContainer>
+              ) : (
+                <p className="text-gray-500 text-center py-16">No hay datos suficientes</p>
+              )}
+            </div>
+
+            {/* Top 10 Productos */}
+            <div className="bg-white rounded-lg shadow p-6">
+              <h2 className="text-lg font-bold text-gray-800 mb-4">Productos Más Vendidos (Top 10)</h2>
+              {topProducts.length > 0 ? (
+                <ResponsiveContainer width="100%" height={250}>
+                  <BarChart data={topProducts}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="name" tick={{ fontSize: 10 }} angle={-45} textAnchor="end" height={80} />
+                    <YAxis tick={{ fontSize: 12 }} />
+                    <Tooltip />
+                    <Legend />
+                    <Bar dataKey="revenue" fill="#10b981" name="Ingresos ($)" />
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                <p className="text-gray-500 text-center py-16">No hay datos suficientes</p>
+              )}
+            </div>
+          </div>
+
+          {/* Alertas Inteligentes */}
+          {topProducts.length > 0 && (
+            <div className="bg-gradient-to-r from-blue-50 to-purple-50 rounded-lg shadow p-6 mb-8">
+              <h2 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
+                <TrendingUp className="w-5 h-5 text-blue-600" />
+                Alertas Inteligentes
+              </h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="bg-white rounded-lg p-4 shadow-sm">
+                  <p className="text-sm font-medium text-gray-700 mb-2">🔥 Producto Estrella</p>
+                  <p className="text-lg font-bold text-blue-600">{topProducts[0]?.name}</p>
+                  <p className="text-xs text-gray-600 mt-1">
+                    {topProducts[0]?.quantity} unidades vendidas | ${topProducts[0]?.revenue.toFixed(2)} en ingresos
+                  </p>
+                </div>
+                {lowStockProducts.length > 0 && (
+                  <div className="bg-white rounded-lg p-4 shadow-sm">
+                    <p className="text-sm font-medium text-gray-700 mb-2">⚠️ Requiere Reabastecimiento</p>
+                    <p className="text-lg font-bold text-orange-600">{lowStockProducts.length} productos</p>
+                    <p className="text-xs text-gray-600 mt-1">con stock por debajo del umbral</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Recent Sales & Low Stock */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

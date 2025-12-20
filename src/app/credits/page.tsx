@@ -259,6 +259,50 @@ export default function CreditsPage() {
     }
   };
 
+  const handleSendReminder = (credit: CreditDetail) => {
+    if (!credit.customer?.phone) {
+      toast.error('El cliente no tiene teléfono registrado');
+      return;
+    }
+
+    const phone = credit.customer.phone.replace(/\D/g, '');
+    const message = `Hola ${credit.customer.name}, te recordamos que tienes un crédito pendiente:\n\n` +
+      `Monto total: $${credit.total_amount.toFixed(2)}\n` +
+      `Pendiente: $${credit.outstanding_amount.toFixed(2)}\n` +
+      `Fecha vencimiento: ${new Date(credit.due_date).toLocaleDateString('es-MX')}\n\n` +
+      `Puedes pasar cuando gustes para realizar tu pago. ¡Gracias!`;
+
+    const whatsappUrl = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
+    window.open(whatsappUrl, '_blank');
+    toast.success('Abriendo WhatsApp...');
+  };
+
+  const [viewMode, setViewMode] = useState<'list' | 'calendar'>('list');
+  
+  const getCalendarData = () => {
+    const now = new Date();
+    const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
+    const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    const days = [];
+    
+    for (let d = new Date(firstDay); d <= lastDay; d.setDate(d.getDate() + 1)) {
+      days.push(new Date(d));
+    }
+    
+    return days.map(day => {
+      const dayCredits = credits.filter(c => {
+        const dueDate = new Date(c.due_date);
+        return dueDate.toDateString() === day.toDateString() && c.status !== 'closed';
+      });
+      
+      return {
+        date: day,
+        credits: dayCredits,
+        total: dayCredits.reduce((sum, c) => sum + c.outstanding_amount, 0)
+      };
+    });
+  };
+
   const handleOpenBulkPrintModal = () => {
     // Obtener lista única de clientes con créditos pendientes
     const uniqueCustomers = new Map<string, Customer>();
@@ -538,33 +582,54 @@ export default function CreditsPage() {
 
           <div className="bg-white rounded-lg shadow p-6 mb-6">
             <div className="flex flex-wrap gap-4 mb-4 items-center justify-between">
-              <div className="space-y-2">
+              <div className="space-y-2 flex-1">
                 <div className="flex flex-wrap gap-2">
-                  <span className="text-sm font-medium text-gray-700">Estado:</span>
-                  {['all', 'open', 'overdue', 'closed'].map((status) => (
-                    <Button
-                      key={status}
-                      onClick={() => setFilterStatus(status as typeof filterStatus)}
-                      variant={filterStatus === status ? 'primary' : 'secondary'}
-                      size="sm"
-                    >
-                      {status === 'all' ? 'Todos' : status === 'open' ? 'Actuales' : status === 'overdue' ? 'Atrasados' : 'Cerrados'}
-                    </Button>
-                  ))}
+                  <span className="text-sm font-medium text-gray-700">Vista:</span>
+                  <Button
+                    onClick={() => setViewMode('list')}
+                    variant={viewMode === 'list' ? 'primary' : 'secondary'}
+                    size="sm"
+                  >
+                    📋 Lista
+                  </Button>
+                  <Button
+                    onClick={() => setViewMode('calendar')}
+                    variant={viewMode === 'calendar' ? 'primary' : 'secondary'}
+                    size="sm"
+                  >
+                    📅 Calendario
+                  </Button>
                 </div>
-                <div className="flex flex-wrap gap-2">
-                  <span className="text-sm font-medium text-gray-700">Periodo:</span>
-                  {['all', 'week', 'month', 'overdue'].map((period) => (
-                    <Button
-                      key={period}
-                      onClick={() => setFilterPeriod(period as typeof filterPeriod)}
-                      variant={filterPeriod === period ? 'primary' : 'secondary'}
-                      size="sm"
-                    >
-                      {period === 'all' ? 'Todo' : period === 'week' ? 'Esta Semana' : period === 'month' ? 'Este Mes' : 'Vencidos'}
-                    </Button>
-                  ))}
-                </div>
+                {viewMode === 'list' && (
+                  <>
+                    <div className="flex flex-wrap gap-2">
+                      <span className="text-sm font-medium text-gray-700">Estado:</span>
+                      {['all', 'open', 'overdue', 'closed'].map((status) => (
+                        <Button
+                          key={status}
+                          onClick={() => setFilterStatus(status as typeof filterStatus)}
+                          variant={filterStatus === status ? 'primary' : 'secondary'}
+                          size="sm"
+                        >
+                          {status === 'all' ? 'Todos' : status === 'open' ? 'Actuales' : status === 'overdue' ? 'Atrasados' : 'Cerrados'}
+                        </Button>
+                      ))}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <span className="text-sm font-medium text-gray-700">Periodo:</span>
+                      {['all', 'week', 'month', 'overdue'].map((period) => (
+                        <Button
+                          key={period}
+                          onClick={() => setFilterPeriod(period as typeof filterPeriod)}
+                          variant={filterPeriod === period ? 'primary' : 'secondary'}
+                          size="sm"
+                        >
+                          {period === 'all' ? 'Todo' : period === 'week' ? 'Esta Semana' : period === 'month' ? 'Este Mes' : 'Vencidos'}
+                        </Button>
+                      ))}
+                    </div>
+                  </>
+                )}
               </div>
               <Button
                 onClick={handleOpenBulkPrintModal}
@@ -575,7 +640,8 @@ export default function CreditsPage() {
               </Button>
             </div>
 
-            <div className="overflow-x-auto">
+            {viewMode === 'list' ? (
+              <div className="overflow-x-auto">
               <table className="min-w-full">
                 <thead className="bg-gray-50">
                   <tr>
@@ -606,14 +672,25 @@ export default function CreditsPage() {
                         {getStatusEmoji(c.status)} {getStatusColor(c.status)}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm">
-                        <Button
-                          onClick={() => handleShowTicket(c)}
-                          variant="secondary"
-                          size="sm"
-                        >
-                          <FileText className="w-4 h-4 mr-1" />
-                          Nota
-                        </Button>
+                        <div className="flex gap-2">
+                          <Button
+                            onClick={() => handleShowTicket(c)}
+                            variant="secondary"
+                            size="sm"
+                          >
+                            <FileText className="w-4 h-4 mr-1" />
+                            Nota
+                          </Button>
+                          {c.customer?.phone && c.status !== 'closed' && (
+                            <button
+                              onClick={() => handleSendReminder(c)}
+                              className="px-3 py-1 bg-green-600 text-white rounded-lg hover:bg-green-700 text-xs"
+                              title="Enviar recordatorio por WhatsApp"
+                            >
+                              📱
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -627,6 +704,57 @@ export default function CreditsPage() {
                 </tbody>
               </table>
             </div>
+            ) : (
+              <div>
+                <h3 className="text-lg font-bold text-gray-800 mb-4">
+                  {new Date().toLocaleDateString('es-MX', { month: 'long', year: 'numeric' })}
+                </h3>
+                <div className="grid grid-cols-7 gap-2">
+                  {['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'].map((day) => (
+                    <div key={day} className="text-center font-bold text-gray-600 text-sm p-2">
+                      {day}
+                    </div>
+                  ))}
+                  
+                  {/* Espacios vacíos al inicio del mes */}
+                  {Array.from({ length: new Date(new Date().getFullYear(), new Date().getMonth(), 1).getDay() }).map((_, i) => (
+                    <div key={`empty-${i}`} className="p-2" />
+                  ))}
+                  
+                  {/* Días del mes */}
+                  {getCalendarData().map((day, idx) => {
+                    const isToday = day.date.toDateString() === new Date().toDateString();
+                    const hasCredits = day.credits.length > 0;
+                    
+                    return (
+                      <div
+                        key={idx}
+                        className={`p-2 border rounded-lg min-h-20 ${
+                          isToday ? 'bg-blue-50 border-blue-300' : 'bg-white'
+                        } ${hasCredits ? 'border-red-300' : 'border-gray-200'}`}
+                      >
+                        <div className="text-sm font-semibold text-gray-700 mb-1">
+                          {day.date.getDate()}
+                        </div>
+                        {hasCredits && (
+                          <div className="text-xs space-y-1">
+                            <div className="text-red-600 font-bold">
+                              ${day.total.toFixed(0)}
+                            </div>
+                            <div className="text-gray-600">
+                              {day.credits.length} deuda{day.credits.length > 1 ? 's' : ''}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="mt-4 text-sm text-gray-600">
+                  <p>💡 Los días marcados en rojo tienen pagos pendientes</p>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Modal de Ticket */}
