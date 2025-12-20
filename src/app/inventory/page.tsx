@@ -359,6 +359,7 @@ export default function InventoryPage() {
           <div style="
             margin-bottom: 15mm;
             page-break-inside: avoid;
+            page-break-after: always;
             text-align: center;
           ">
             <div style="
@@ -376,7 +377,14 @@ export default function InventoryPage() {
             ">
               ${product.sku}
             </div>
-            ${index < selectedProducts.length - 1 ? '<div style="border-top: 1px dashed #ccc; margin: 5mm 0;"></div>' : ''}
+            <div style="
+              font-size: 12pt;
+              font-weight: bold;
+              margin-top: 3mm;
+              color: #000;
+            ">
+              $${product.sale_price.toFixed(2)}
+            </div>
           </div>
         `;
       } catch (e) {

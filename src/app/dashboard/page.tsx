@@ -29,7 +29,8 @@ export default function DashboardPage() {
   const [lowStockProducts, setLowStockProducts] = useState<Product[]>([]);
   const [salesChartData, setSalesChartData] = useState<any[]>([]);
   const [topProducts, setTopProducts] = useState<any[]>([]);
-  const [previousMonthStats, setPreviousMonthStats] = useState({ revenue: 0, sales: 0 });
+  const [customersChartData, setCustomersChartData] = useState<any[]>([]);
+  const [previousMonthStats, setPreviousMonthStats] = useState({ revenue: 0, sales: 0, customers: 0 });
   const [loading, setLoading] = useState(true);
   const [showReportModal, setShowReportModal] = useState(false);
   const [reportStart, setReportStart] = useState<string>('');
@@ -87,9 +88,14 @@ export default function DashboardPage() {
 
       // Estadísticas del mes anterior
       const prevRevenue = prevMonthSales.reduce((sum: number, s: Sale) => sum + s.total_amount, 0);
+      
+      // Clientes únicos del mes anterior
+      const prevCustomerIds = new Set(prevMonthSales.filter((s: Sale) => s.customer_id).map((s: Sale) => s.customer_id));
+      
       setPreviousMonthStats({
         revenue: prevRevenue,
         sales: prevMonthSales.length,
+        customers: prevCustomerIds.size,
       });
 
       setRecentSales(sales.slice(0, 5));
@@ -124,6 +130,24 @@ export default function DashboardPage() {
         .slice(0, 10);
 
       setTopProducts(topProductsData);
+
+      // Preparar datos para gráfica de clientes activos por día (últimos 14 días)
+      const customersByDay: { [key: string]: Set<string> } = {};
+      recentSalesData.forEach((sale: Sale) => {
+        if (sale.customer_id) {
+          const date = new Date(sale.created_at).toLocaleDateString('es-MX', { month: 'short', day: 'numeric' });
+          if (!customersByDay[date]) {
+            customersByDay[date] = new Set();
+          }
+          customersByDay[date].add(sale.customer_id);
+        }
+      });
+
+      const customersChart = Object.entries(customersByDay)
+        .map(([date, customers]) => ({ date, clientes: customers.size }))
+        .slice(-14);
+
+      setCustomersChartData(customersChart);
     } catch (error) {
       toast.error('Error al cargar estadísticas');
     } finally {
@@ -309,6 +333,39 @@ export default function DashboardPage() {
         ws['!autofilter'] = { ref: `A1:G${customersData.length + 1}` };
         
         XLSX.utils.book_append_sheet(wb, ws, 'Clientes');
+
+        // Agregar hoja de comparativa de clientes activos
+        const salesInRangeRes = await supabase
+          .from('sales')
+          .select('customer_id, created_at')
+          .gte('created_at', start)
+          .lte('created_at', end)
+          .not('customer_id', 'is', null);
+
+        if (!salesInRangeRes.error) {
+          const salesInRange = salesInRangeRes.data || [];
+          
+          // Agrupar por fecha
+          const customersByDate: { [key: string]: Set<string> } = {};
+          salesInRange.forEach((sale: any) => {
+            const date = new Date(sale.created_at).toLocaleDateString('es-MX');
+            if (!customersByDate[date]) {
+              customersByDate[date] = new Set();
+            }
+            customersByDate[date].add(sale.customer_id);
+          });
+
+          const comparativaData = Object.entries(customersByDate)
+            .map(([fecha, clientes]) => ({
+              'Fecha': fecha,
+              'Clientes Únicos': clientes.size,
+            }))
+            .sort((a, b) => new Date(a.Fecha).getTime() - new Date(b.Fecha).getTime());
+
+          const wsComp = XLSX.utils.json_to_sheet(comparativaData);
+          wsComp['!cols'] = [{ wch: 15 }, { wch: 20 }];
+          XLSX.utils.book_append_sheet(wb, wsComp, 'Comparativa Clientes');
+        }
       }
 
       // Sección de Pagos de Créditos
@@ -471,7 +528,7 @@ export default function DashboardPage() {
 
           {/* Comparativa mes anterior */}
           {previousMonthStats.revenue > 0 && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
               <div className="bg-white rounded-lg shadow p-6">
                 <p className="text-gray-600 text-sm mb-2">Comparativa de Ingresos</p>
                 <div className="flex items-center gap-2">
@@ -508,6 +565,29 @@ export default function DashboardPage() {
                   )}
                 </div>
                 <p className="text-xs text-gray-500 mt-1">vs mes anterior: {previousMonthStats.sales} ventas</p>
+              </div>
+
+              <div className="bg-white rounded-lg shadow p-6">
+                <p className="text-gray-600 text-sm mb-2">Comparativa de Clientes</p>
+                <div className="flex items-center gap-2">
+                  <p className="text-2xl font-bold text-gray-800">{customersChartData.reduce((sum, day) => sum + day.clientes, 0)}</p>
+                  {previousMonthStats.customers > 0 && (
+                    <>
+                      {customersChartData.reduce((sum, day) => sum + day.clientes, 0) > previousMonthStats.customers ? (
+                        <span className="text-green-600 text-sm flex items-center">
+                          <TrendingUp className="w-4 h-4" />
+                          +{(((customersChartData.reduce((sum, day) => sum + day.clientes, 0) - previousMonthStats.customers) / previousMonthStats.customers) * 100).toFixed(1)}%
+                        </span>
+                      ) : (
+                        <span className="text-red-600 text-sm flex items-center">
+                          <TrendingUp className="w-4 h-4 rotate-180" />
+                          {(((customersChartData.reduce((sum, day) => sum + day.clientes, 0) - previousMonthStats.customers) / previousMonthStats.customers) * 100).toFixed(1)}%
+                        </span>
+                      )}
+                    </>
+                  )}
+                </div>
+                <p className="text-xs text-gray-500 mt-1">vs mes anterior: {previousMonthStats.customers} clientes</p>
               </div>
             </div>
           )}
@@ -546,6 +626,25 @@ export default function DashboardPage() {
                     <Legend />
                     <Bar dataKey="revenue" fill="#10b981" name="Ingresos ($)" />
                   </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                <p className="text-gray-500 text-center py-16">No hay datos suficientes</p>
+              )}
+            </div>
+
+            {/* Clientes Activos */}
+            <div className="bg-white rounded-lg shadow p-6">
+              <h2 className="text-lg font-bold text-gray-800 mb-4">Clientes Activos (últimos 14 días)</h2>
+              {customersChartData.length > 0 ? (
+                <ResponsiveContainer width="100%" height={250}>
+                  <LineChart data={customersChartData}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="date" tick={{ fontSize: 12 }} />
+                    <YAxis tick={{ fontSize: 12 }} />
+                    <Tooltip />
+                    <Legend />
+                    <Line type="monotone" dataKey="clientes" stroke="#8b5cf6" strokeWidth={2} name="Clientes Únicos" />
+                  </LineChart>
                 </ResponsiveContainer>
               ) : (
                 <p className="text-gray-500 text-center py-16">No hay datos suficientes</p>
