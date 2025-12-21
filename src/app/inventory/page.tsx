@@ -359,7 +359,6 @@ export default function InventoryPage() {
           <div style="
             margin-bottom: 15mm;
             page-break-inside: avoid;
-            page-break-after: always;
             text-align: center;
           ">
             <div style="
@@ -383,8 +382,9 @@ export default function InventoryPage() {
               margin-top: 3mm;
               color: #000;
             ">
-              $${product.sale_price.toFixed(2)}
+              $${product.price.toFixed(2)}
             </div>
+            ${index < selectedProducts.length - 1 ? '<div style="border-top: 1px dashed #ccc; margin: 5mm 0;"></div>' : ''}
           </div>
         `;
       } catch (e) {
@@ -426,16 +426,26 @@ export default function InventoryPage() {
       `);
       printWindow.document.close();
       
-      printWindow.onload = () => {
-        setTimeout(() => {
+      // Esperar a que el documento esté completamente cargado
+      const checkLoaded = setInterval(() => {
+        if (printWindow.document.readyState === 'complete') {
+          clearInterval(checkLoaded);
+          setTimeout(() => {
+            printWindow.print();
+          }, 500);
+        }
+      }, 100);
+      
+      // Timeout de seguridad
+      setTimeout(() => {
+        clearInterval(checkLoaded);
+        if (printWindow.document.readyState !== 'complete') {
           printWindow.print();
-        }, 250);
-      };
+        }
+      }, 3000);
     } else {
       toast.error('No se pudo abrir la ventana de impresión');
     }
-
-    setShowBarcodeModal(false);
 
     setShowBarcodeModal(false);
     setSelectedBarcodes(new Set());

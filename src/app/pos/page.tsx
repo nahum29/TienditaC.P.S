@@ -865,12 +865,23 @@ export default function POSPage() {
                         const url = URL.createObjectURL(ticketBlob);
                         const printWindow = window.open(url, '_blank');
                         if (printWindow) {
-                          printWindow.onload = () => {
-                            setTimeout(() => {
+                          // Esperar a que la ventana cargue completamente
+                          const checkLoaded = setInterval(() => {
+                            if (printWindow.document.readyState === 'complete') {
+                              clearInterval(checkLoaded);
+                              setTimeout(() => {
+                                printWindow.print();
+                              }, 500);
+                            }
+                          }, 100);
+                          
+                          // Timeout de seguridad
+                          setTimeout(() => {
+                            clearInterval(checkLoaded);
+                            if (printWindow.document.readyState !== 'complete') {
                               printWindow.print();
-                              // No cerrar la ventana automáticamente para que el usuario pueda reimprimir
-                            }, 250);
-                          };
+                            }
+                          }, 3000);
                         } else {
                           toast.error('No se pudo abrir ventana de impresión. Verifique el bloqueador de ventanas emergentes.');
                         }
