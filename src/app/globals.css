@@ -37,84 +37,150 @@ body {
 }
 
 .dark .bg-gray-50 {
-  background: #1f2937;
+  background: #1f2937 !important;
+  color: #f3f4f6 !important;
+}
+
+.dark .bg-gray-100 {
+  background: #374151 !important;
+  color: #f3f4f6 !important;
+}
+
+.dark .bg-gray-200 {
+  background: #4b5563 !important;
+  color: #f9fafb !important;
 }
 
 .dark .bg-white {
-  background: #374151;
-  color: #f3f4f6;
+  background: #374151 !important;
+  color: #f3f4f6 !important;
 }
 
-.dark .text-gray-800 {
-  color: #f3f4f6;
-}
-
+.dark .text-gray-800,
 .dark .text-gray-900 {
-  color: #f9fafb;
+  color: #f3f4f6 !important;
 }
 
-.dark .placeholder-gray-400::placeholder {
-  color: #9ca3af;
+.dark .text-gray-700 {
+  color: #e5e7eb !important;
 }
 
+.dark .text-gray-600 {
+  color: #d1d5db !important;
+}
+
+.dark .text-gray-500 {
+  color: #9ca3af !important;
+}
+
+.dark .text-gray-400 {
+  color: #6b7280 !important;
+}
+
+/* Badges y estados */
+.dark .bg-red-100 {
+  background: #7f1d1d !important;
+  color: #fca5a5 !important;
+}
+
+.dark .text-red-800 {
+  color: #fca5a5 !important;
+}
+
+.dark .bg-green-100 {
+  background: #14532d !important;
+  color: #86efac !important;
+}
+
+.dark .text-green-800 {
+  color: #86efac !important;
+}
+
+.dark .bg-blue-100 {
+  background: #1e3a8a !important;
+  color: #93c5fd !important;
+}
+
+.dark .text-blue-600 {
+  color: #93c5fd !important;
+}
+
+.dark .text-blue-800 {
+  color: #93c5fd !important;
+}
+
+/* Inputs y formularios */
 .dark input,
 .dark textarea,
 .dark select {
-  background: #1f2937;
-  color: #f3f4f6;
-  border-color: #4b5563;
+  background: #1f2937 !important;
+  color: #f3f4f6 !important;
+  border-color: #4b5563 !important;
 }
 
 .dark input:focus,
 .dark textarea:focus,
 .dark select:focus {
-  border-color: #3b82f6;
-  background: #1f2937;
+  border-color: #3b82f6 !important;
+  background: #1f2937 !important;
 }
 
+.dark .placeholder-gray-400::placeholder {
+  color: #9ca3af !important;
+}
+
+/* Alertas amarillas de stock */
 .dark .bg-yellow-50 {
-  background: #422006;
-  color: #fef3c7;
+  background: #713f12 !important;
+  color: #fef08a !important;
 }
 
-.dark .text-yellow-800 {
-  color: #fef08a;
-}
-
+.dark .text-yellow-800,
 .dark .text-yellow-700 {
-  color: #fde047;
+  color: #fef08a !important;
 }
 
 .dark .border-yellow-200 {
-  border-color: #92400e;
+  border-color: #92400e !important;
 }
 
+/* Hover states */
 .dark .bg-blue-50 {
-  background: #1e3a8a;
+  background: #1e3a8a !important;
 }
 
 .dark .hover\:bg-blue-50:hover {
-  background: #1e40af;
+  background: #1e40af !important;
 }
 
-.dark .text-gray-500 {
-  color: #d1d5db;
+.dark .hover\:bg-gray-50:hover {
+  background: #374151 !important;
 }
 
-.dark .text-gray-600 {
-  color: #e5e7eb;
-}
-
-.dark .text-gray-700 {
-  color: #f3f4f6;
-}
-
-.dark .border-gray-200 {
-  border-color: #4b5563;
+/* Bordes */
+.dark .border-gray-200,
+.dark .border-gray-300 {
+  border-color: #4b5563 !important;
 }
 
 .dark .divide-gray-200 > * + * {
-  border-color: #4b5563;
+  border-color: #4b5563 !important;
+}
+
+/* Sombras */
+.dark .shadow {
+  box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.5), 0 1px 2px -1px rgb(0 0 0 / 0.5);
+}
+
+.dark .shadow-lg {
+  box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.5), 0 4px 6px -4px rgb(0 0 0 / 0.5);
+}
+
+/* Números y valores importantes */
+.dark .text-2xl,
+.dark .text-3xl,
+.dark .text-4xl {
+  color: #f9fafb !important;
 }
 
 .dark .text-gray-600 {
@@ -129,23 +195,9 @@ body {
   border-color: #4b5563;
 }
 
-.dark input,
-.dark textarea,
-.dark select {
-  background: #1f2937;
-  color: #f3f4f6;
-  border-color: #4b5563;
-}
+/* Asegurar inputs legibles */
 
-.dark .shadow {
-  box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.3), 0 1px 2px -1px rgb(0 0 0 / 0.3);
-}
-
-.dark .shadow-lg {
-  box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.3), 0 4px 6px -4px rgb(0 0 0 / 0.3);
-}
-
-/* Mejora la visibilidad de los placeholders en inputs, textarea y selects */
+/* Mejor contraste para elementos de formulario */
 input::placeholder,
 textarea::placeholder,
 select::placeholder {
