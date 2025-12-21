@@ -377,7 +377,9 @@ export default function CreditsPage() {
       document.body.appendChild(printContainer);
 
       // Generar cada ticket
-      for (const credit of creditsToPrint) {
+      for (let i = 0; i < creditsToPrint.length; i++) {
+        const credit = creditsToPrint[i];
+        
         // Obtener datos del crédito
         const { data: creditSales } = await supabase
           .from('credit_sales')
@@ -423,7 +425,7 @@ export default function CreditsPage() {
         printContainer.appendChild(ticketDiv);
 
         // Agregar separador con tijera (excepto después del último)
-        if (i < selectedCreditsList.length - 1) {
+        if (i < creditsToPrint.length - 1) {
           const separator = document.createElement('div');
           separator.className = 'ticket-separator';
           separator.innerHTML = `
