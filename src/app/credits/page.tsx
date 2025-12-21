@@ -419,8 +419,23 @@ export default function CreditsPage() {
         const ticketHTML = createTicketHTML(credit, enrichedItems);
         const ticketDiv = document.createElement('div');
         ticketDiv.innerHTML = ticketHTML;
-        ticketDiv.style.cssText = 'page-break-after: always; padding: 20px;';
+        ticketDiv.className = 'ticket';
         printContainer.appendChild(ticketDiv);
+
+        // Agregar separador con tijera (excepto después del último)
+        if (i < selectedCreditsList.length - 1) {
+          const separator = document.createElement('div');
+          separator.className = 'ticket-separator';
+          separator.innerHTML = `
+            <div style="text-align: center; margin: 30px 0; padding: 20px 0;">
+              <div style="border-top: 3px dashed #999; position: relative; margin: 0 20px;">
+                <span style="position: absolute; left: 50%; top: -12px; transform: translateX(-50%); background: white; padding: 0 10px; font-size: 20px;">✂️</span>
+              </div>
+              <p style="font-size: 11px; color: #666; margin: 15px 0 0 0;">Cortar aquí</p>
+            </div>
+          `;
+          printContainer.appendChild(separator);
+        }
       }
 
       toast.dismiss();
@@ -434,10 +449,30 @@ export default function CreditsPage() {
             <head>
               <title>Tickets de Crédito</title>
               <style>
-                body { font-family: monospace; }
+                body { 
+                  font-family: monospace; 
+                  margin: 0;
+                  padding: 20px;
+                }
+                .ticket { 
+                  page-break-inside: avoid;
+                  margin-bottom: 40px;
+                  padding: 20px 0;
+                }
+                .ticket-separator {
+                  page-break-after: always;
+                }
                 @media print {
-                  body { margin: 0; }
-                  .ticket { page-break-after: always; }
+                  body { 
+                    margin: 0;
+                    padding: 10px;
+                  }
+                  .ticket { 
+                    page-break-inside: avoid;
+                  }
+                  .ticket-separator {
+                    page-break-after: always;
+                  }
                 }
               </style>
             </head>
