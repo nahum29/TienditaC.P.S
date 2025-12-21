@@ -183,6 +183,43 @@ body {
   color: #f9fafb !important;
 }
 
+/* Tablas */
+.dark table {
+  color: #f3f4f6 !important;
+}
+
+.dark thead {
+  background: #1f2937 !important;
+  color: #9ca3af !important;
+}
+
+.dark tbody {
+  background: #374151 !important;
+}
+
+.dark tbody tr {
+  background: #374151 !important;
+  color: #f3f4f6 !important;
+}
+
+.dark tbody tr:nth-child(even) {
+  background: #4b5563 !important;
+}
+
+.dark tbody tr:hover {
+  background: #4b5563 !important;
+}
+
+.dark td,
+.dark th {
+  color: #f3f4f6 !important;
+  border-color: #4b5563 !important;
+}
+
+.dark .divide-y > * {
+  border-color: #4b5563 !important;
+}
+
 .dark .text-gray-600 {
   color: #d1d5db;
 }
